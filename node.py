@@ -1,6 +1,7 @@
 import socket
 import threading
 import sys
+from blockchain import Blockchain
 
 VERSION_COMMAND = 'version.....'
 VERACK_COMMAND = 'verack......'
@@ -32,20 +33,20 @@ class Node():
 		self.max_connections = max_connections
 		self.version = version
 
-		self.blockchain = {
-			(b'0' * 64) : b'0' * 4
-		}
-
+		self.blockchain = Blockchain()
 		if len(conexions) == 0:
-			
-			self.blockchain[b'1' * 64] = b'1' * 4
-			self.blockchain[b'2' * 64] = b'2' * 4
+			self.blockchain.add_block([(100, 0), (100, 1)])
+			self.blockchain.add_block([(200, 0), (200, 1)])
+			self.blockchain.add_block([(300, 0), (300, 1)])
+			self.blockchain.add_block([(400, 0), (400, 1)])
+			self.blockchain.add_block([(500, 0), (500, 1)])
+
+		print(self.blockchain)
 
 		# Load and establish conexions 
 		for conexion in conexions:
 			self.send_conexion_handler(conexion)
 			if conexion in self.peers: self.send_getblocks_handler(conexion)
-		print(self.blockchain)
 
 	def listen(self):
 		while True:
@@ -55,7 +56,6 @@ class Node():
 	def message_handler(self, client_socket):
 		command_metadata = client_socket.recv(31)
 		command, ip, port = command_metadata[:12].decode('utf-8'), command_metadata[12: 27].decode('utf-8').strip(), int.from_bytes(command_metadata[27:], 'little')
-		print(f'{command} {ip} {port}')
 		if command == VERSION_COMMAND:
 			self.receive_conexion_handler(client_socket)
 		if (ip, port) not in self.peers:
@@ -78,7 +78,7 @@ class Node():
 		# Listen to rest of message
 		payload = client_socket.recv(22)
 		version, server_address, server_port, = self.decode_version(payload)
-		print(f'Received version {version}, ip {server_address}, port {server_port}')
+		print(f'Node trying to connect with version {version}, ip {server_address}, port {server_port}')
 
 		if version != self.version: 
 			# Node with uncompatible version trying to connect
@@ -94,7 +94,7 @@ class Node():
 
 		self.send_verack_handler(client_socket)
 		client_socket.close()
-		print('Received version, sending verack')
+		print('Compatible version, sending verack')
 
 		# Check if node in peers, add to peers 
 		if (server_address, server_port) not in self.peers: 
@@ -125,35 +125,12 @@ class Node():
 		client_socket.close()
 		return
 
-	def send_inv_handler(self, client_socket):
-		# Height received from GETBLOCKS
-		heigth = client_socket.recv(4)
-		heigth = int.from_bytes(heigth, 'little')
-		current_height = self.current_height
-
-		if heigth >= current_height:
-			# Received a geater or equal blockchain heigth
-			client_socket.close()
-			return
-
-		command = self.metadata(INV_COMMAND)
-		client_socket.send(command)
-		payload = self.current_height.to_bytes(4, 'little')
-		payload += min(current_height - heigth,  MAX_BLOCKS_TO_SEND).to_bytes(4, 'little')
-		print(f'Peer Blockchain out of sync. Sending {min(current_height - heigth,  MAX_BLOCKS_TO_SEND)} blocks')
-		# for i in range(min(current_height - heigth,  MAX_BLOCKS_TO_SEND)):
-		# 	payload += (str(i) * 64).encode('utf-8')
-		for k in self.blockchain.keys():
-			payload += k
-
-		client_socket.send(payload)
-		client_socket.close()
-
 	def send_getblocks_handler(self, conexion):
 		client_socket = self.create_socket(conexion)
 
 		command = self.metadata(GETBLOCKS_COMMAND)
 		client_socket.send(command)
+		print('Send getblocks command')
 		client_socket.send(self.current_height.to_bytes(4, 'little'))
 
 		# Receive command
@@ -164,26 +141,71 @@ class Node():
 			print('Did not receive inventory')
 			client_socket.close()
 			return
-		print('Received inventory')
+		print('Received inv command')
 
-		# Receive inv
+		# Receive inv metadata
 		inv_metadata = client_socket.recv(8)
-		heigth, number_of_hashes = self.decode_inv_metadata(inv_metadata)
-		print(f'Blockchain out of sync. Node height {self.current_height} and received heigth {heigth}. Receiving {number_of_hashes} blocks')
-		inv_block_hashes = client_socket.recv(number_of_hashes * 64)
-		block_hashes = self.decode_inv_block_hashes(inv_block_hashes, number_of_hashes)
+		heigth, number_blocks_hashes = self.decode_inv_metadata(inv_metadata)
+		print(f'Blockchain out of sync. Node height {self.current_height} and received heigth {heigth}. Receiving {number_blocks_hashes} blocks')
+		
+		# Receive inv blocks hashes
+		block_hashes = []
+		for _ in range(number_blocks_hashes):
+			block_hash = client_socket.recv(4)
+			block_hashes.append(block_hash)
 		client_socket.close()
 
 		for block_hash in block_hashes:
-			self.getdata_handler(conexion, block_hash)
+			self.send_getdata_handler(conexion, block_hash)
+		print(self.blockchain)
 
-	def getdata_handler(self, conexion, block_hash):
+	def send_inv_handler(self, client_socket):
+		# Height received from GETBLOCKS
+		heigth = client_socket.recv(4)
+		heigth = int.from_bytes(heigth, 'little')
+
+		if heigth >= self.current_height:
+			# Received a geater or equal blockchain heigth
+			client_socket.close()
+			return
+
+		command = self.metadata(INV_COMMAND)
+		client_socket.send(command)
+		print('Send inv command')
+		payload = self.current_height.to_bytes(4, 'little')
+		number_blocks_hashes = min(self.current_height - heigth,  MAX_BLOCKS_TO_SEND)
+		payload += number_blocks_hashes.to_bytes(4, 'little')
+		print(f'Peer Blockchain out of sync. Sending {number_blocks_hashes} blocks')
+		
+		# Iterate over blockchain to obtain desired block
+		sent_blocks = 0
+		while sent_blocks < number_blocks_hashes:
+			current_block_hash = self.blockchain.head_block_hash
+			current_block = self.blockchain.blocks[current_block_hash]
+			while current_block_hash > heigth + 2:
+				current_block_hash = current_block.data['prev_block_hash']
+				current_block = self.blockchain.blocks[current_block_hash]
+			# Stop iterating on the next block of the one to send, to obtain prev_block_hash
+			# Special case for the head node
+			if heigth + 1 == self.current_height: 
+				block_hash_to_send = current_block_hash
+			else:
+				block_hash_to_send = current_block.data['prev_block_hash']
+			payload += block_hash_to_send.to_bytes(4, 'little')
+			heigth += 1
+			sent_blocks += 1
+
+		client_socket.send(payload)
+		client_socket.close()
+
+	def send_getdata_handler(self, conexion, block_hash):
 		command = self.metadata(GETDATA_COMMAND)
 		# Send getdata command
 		client_socket = self.create_socket(conexion)
 		client_socket.send(command)
 		payload = block_hash
 		client_socket.send(payload)
+		print(f'Sent getdata for block {int.from_bytes(block_hash, "little")}')
 		self.receive_block_hanlder(client_socket)
 			
 	def receive_block_hanlder(self, client_socket):
@@ -192,27 +214,52 @@ class Node():
 		if command != BLOCK_COMMAND:
 			client_socket.close()
 			return
-		block_size = client_socket.recv(4)
-		block_size = int.from_bytes(block_size, 'little')
-		block_data = client_socket.recv(block_size)
-		self.add_block(block_data)
+
+		block_metadata = client_socket.recv(8)
+		prev_block_hash, number_of_txs = self.decode_block_metadata(block_metadata)
+		print(f'Received block with prev_block_hash {prev_block_hash} and number_of_txs {number_of_txs}')
+		block_txs = []
+		for _ in range(number_of_txs):
+			tx_metadata = client_socket.recv(8)
+			value, uniqueID = self.decode_tx_metadata(tx_metadata)
+			block_txs.append((value, uniqueID))
+
+		# Add block to blockchain
+		self.blockchain.add_block(block_txs)
+		print(f'Added block with prev_block_hash {prev_block_hash} and txs {block_txs}')
 		client_socket.close()
 
+
 	def send_block_handler(self, client_socket):
-		block_hash = client_socket.recv(64)
-		block_data, block_size = self.get_block_data(block_hash)
+		block_hash = client_socket.recv(4)
+		prev_block_hash, number_of_txs, block_txs = self.get_block_data(block_hash)
 
 		command = self.metadata(BLOCK_COMMAND)
 		client_socket.send(command)
-		client_socket.send(block_size)
-		client_socket.send(block_data)
+		payload = prev_block_hash.to_bytes(4, 'little') + number_of_txs.to_bytes(4, 'little')
+		client_socket.send(payload)
+		print(f'Sent block with prev_block_hash {prev_block_hash} and {number_of_txs} txs')
+		for tx in block_txs:
+			# Send 4 bytes with the value of the tx
+			payload = tx.data['value'].to_bytes(4, 'little')
+			# Send 4 bytes with the uniqueID of the tx
+			payload += tx.data['uniqueID'].to_bytes(4, 'little')
+			client_socket.send(payload)
 		client_socket.close()
 
 	def receive_transaction_hanlder(self, client_socket):
 		pass
 
 	def get_block_data(self, block_hash):
-		return self.blockchain[block_hash], (4).to_bytes(4, 'little')
+		# Get prev_block_hash as 4 bytes
+		block_hash = int.from_bytes(block_hash, "little")
+		block = self.blockchain.blocks[block_hash]
+		prev_block_hash = block.data['prev_block_hash']
+		# Get amount of tx to send as 4 bytes
+		number_of_txs = len(block.data['transactions'])
+		# Get transactions to send
+		block_txs = block.data['transactions']
+		return prev_block_hash, number_of_txs, block_txs
 
 	def add_block(self, block_data):
 		self.blockchain[(str(len(self.blockchain)) * 64).encode('utf-8')] = block_data
@@ -222,8 +269,6 @@ class Node():
 	def current_height(self):
 		# TODO: Change for blockchain heigth
 		return len(self.blockchain)
-
-	
 
 	def create_socket(self, conexion):
 		# Create client socket
@@ -243,6 +288,14 @@ class Node():
 		number_of_hashes = int.from_bytes(payload[4:8], 'little')
 		return heigth, number_of_hashes
 
+	def decode_block_metadata(self, payload):
+		prev_block_hash, number_of_tx = int.from_bytes(payload[:4], 'little'), int.from_bytes(payload[4:], 'little')
+		return prev_block_hash, number_of_tx
+
+	def decode_tx_metadata(self, payload):
+		value, uniqueID = int.from_bytes(payload[:4], 'little'), int.from_bytes(payload[4:], 'little')
+		return value, uniqueID
+
 	def decode_inv_block_hashes(self, payload, number_of_hashes):
 		block_hashes = [payload[i * 64 : (i + 1) * 64] for i in range(number_of_hashes)]
 		return block_hashes
@@ -251,6 +304,7 @@ class Node():
 		# Send command version
 		command = self.metadata(VERSION_COMMAND)
 		client_socket.send(command)
+		print('Send version command')
 
 		# Send command version
 		payload = self.version.encode('utf-8') + self.ip.encode('utf-8') + self.port.to_bytes(4, 'little')
