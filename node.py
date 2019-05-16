@@ -1,6 +1,7 @@
 import socket
 import threading
 import sys
+import time
 from blockchain import Blockchain
 
 VERSION_COMMAND = 'version.....'
@@ -11,7 +12,9 @@ GETBLOCKS_COMMAND = 'getblocks...'
 INV_COMMAND = 'inv.........'
 GETDATA_COMMAND = 'getdata.....'
 
+# TODO
 MAX_BLOCKS_TO_SEND = 100
+SECONDS_TO_ASK = 5
 
 metadata = lambda command, ip, port: f'{command}{ip}'.encode('utf-8') + port
 
@@ -34,6 +37,7 @@ class Node():
 		self.version = version
 
 		self.blockchain = Blockchain()
+		# Test for syncing blockchain
 		if len(conexions) == 0:
 			self.blockchain.add_block([(100, 0), (100, 1)])
 			self.blockchain.add_block([(200, 0), (200, 1)])
@@ -41,17 +45,33 @@ class Node():
 			self.blockchain.add_block([(400, 0), (400, 1)])
 			self.blockchain.add_block([(500, 0), (500, 1)])
 
-		print(self.blockchain)
+		print(f'Initial Blockchain \n {self.blockchain}')
 
 		# Load and establish conexions 
 		for conexion in conexions:
 			self.send_conexion_handler(conexion)
 			if conexion in self.peers: self.send_getblocks_handler(conexion)
 
+		# Test for adding future blocks to network
+		if len(conexions) > 0:
+			self.blockchain.add_block([(600, 0), (600, 1)])
+			self.blockchain.add_block([(700, 0), (700, 1)])
+			self.blockchain.add_block([(800, 0), (800, 1)])
+
+		self.ask_thread = threading.Thread(target=self.ask)
+		self.ask_thread.start()
+
 	def listen(self):
 		while True:
 			client_socket, client_address = self.server_socket.accept()
 			self.message_handler(client_socket)
+
+	def ask(self):
+		while True:
+			time.sleep(SECONDS_TO_ASK)
+			for conexion in self.peers:
+				print(f'Asking conexion {conexion}')
+				self.send_getblocks_handler(conexion)
 
 	def message_handler(self, client_socket):
 		command_metadata = client_socket.recv(31)
@@ -157,7 +177,7 @@ class Node():
 
 		for block_hash in block_hashes:
 			self.send_getdata_handler(conexion, block_hash)
-		print(self.blockchain)
+		print(f'Updated blockchain \n {self.blockchain}')
 
 	def send_inv_handler(self, client_socket):
 		# Height received from GETBLOCKS
