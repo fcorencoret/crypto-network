@@ -22,8 +22,10 @@ class Blockchain():
 		sha.update(serialized_block)
 		return sha.hexdigest()
 
-	def add_block(self, transactions, type='block'):
-		# Method for adding received block from other node to sync blockchain
+	def add_block(self, transactions, type='block', block_hash=False):
+		# Method for adding block to blockchain
+		if block_hash and block_hash in self.blocks: return False
+
 		# Create Block instance with information received
 		prev_block_hash = self.head_block_hash if type=='block' else None
 		block = Block(type, prev_block_hash, transactions)
@@ -31,8 +33,10 @@ class Blockchain():
 		# block_hash = self.hash_block(block.serialize())
 		# self.blocks[block_hash] = block
 
-		self.head_block_hash += 1
-		self.blocks[self.head_block_hash] = block
+		if not block_hash: block_hash = self.head_block_hash + 1
+		self.blocks[block_hash] = block
+		self.head_block_hash = block_hash
+		return self.head_block_hash
 		
 
 	def __str__(self):
