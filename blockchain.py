@@ -1,6 +1,11 @@
 import json
 from Crypto.Hash import SHA256
 
+def hash(self, serialized_data):
+		sha = SHA256.new()
+		sha.update(serialized_data)
+		return sha.hexdigest()
+
 class Blockchain():
 	def __init__(self):
 		self.blocks = {}
@@ -17,14 +22,9 @@ class Blockchain():
 		# self.blocks[block_hash] = block
 		pass
 
-	def hash_block(self, serialized_block):
-		sha = SHA256.new()
-		sha.update(serialized_block)
-		return sha.hexdigest()
-
 	def add_block(self, transactions, type='block', block_hash=False):
 		# Method for adding block to blockchain
-		if block_hash and block_hash in self.blocks: return False
+		if block_hash and block_hash in self.blocks: return False, block_hash
 
 		# Create Block instance with information received
 		prev_block_hash = self.head_block_hash if type=='block' else None
@@ -36,7 +36,7 @@ class Blockchain():
 		if not block_hash: block_hash = self.head_block_hash + 1
 		self.blocks[block_hash] = block
 		self.head_block_hash = block_hash
-		return self.head_block_hash
+		return True, self.head_block_hash
 		
 
 	def __str__(self):
@@ -61,9 +61,9 @@ class Block():
 	def generate_transactions(self, received_transactions):
 		generated_transactions = []
 		for transaction in received_transactions:
-			value = transaction[0]
-			uniqueID = transaction[1]
-			generated_transactions.append(Transaction(value, uniqueID))
+			uniqueID = transaction[0]
+			value = transaction[1]
+			generated_transactions.append(Transaction(uniqueID, value))
 		return generated_transactions
 
 	def serialize(self):
@@ -76,13 +76,12 @@ class Block():
 		format(self.data['type'], self.data['prev_block_hash'], str_transactions)
 
 class Transaction():
-	def __init__(self, value, uniqueID):
+	def __init__(self, uniqueID, value):
 		self.data = {
 			'type' : 'transaction',
-			'value' : value,
 			'uniqueID' : uniqueID,
+			'value' : value,
 		}
 
 	def __str__(self):
-		return'Transaction uniqueID {} | value {}'.\
-		format(self.data['uniqueID'], self.data['value'])
+		return f'Transaction uniqueID {self.data["uniqueID"]} | value {self.data["value"]}'
