@@ -82,7 +82,8 @@ class Node():
         if command == VERSION_COMMAND:
             self.receive_conexion_handler(client_socket)
         elif command == GUI_COMMAND:
-            self.send_verack_handler(client_socket)
+            self.gui_handler(client_socket)
+            return
 
         if (ip, port) not in self.peers:
             print('Unknown node trying to send message')
@@ -329,7 +330,7 @@ class Node():
         # Check if tx in outstanding_txs_pool
         if any(x.data['uniqueID'] == tx_uniqueID for x in self.outstanding_txs_pool):
             print(f'Transaction {tx_uniqueID} already in outstanding_txs_pool')
-            return
+            return False
         # Tx not in outstanding_txs_pool. Proceed to append
         self.outstanding_txs_pool.append(Transaction(tx_uniqueID, value))
 
@@ -339,6 +340,8 @@ class Node():
             print(f'Propagating tx {tx_uniqueID} to peers')
         for conexion in self.peers:
             self.send_tx_handler(conexion, tx_uniqueID, value)
+
+        return True
 
     @property
     def current_height(self):
@@ -393,6 +396,21 @@ class Node():
         outstanding_txs_strings = [str(tx) for tx in self.outstanding_txs_pool]
         return outstanding_txs_strings
 
+    def gui_handler(self, client_socket):
+        self.send_verack_handler(client_socket)
+        command_metadata = client_socket.recv(31)
+        command = command_metadata[:12].decode('utf-8')
+
+        if command == TX_COMMAND:
+            tx_metadata = client_socket.recv(8)
+            tx_data = self.decode_tx_metadata(tx_metadata)
+            wasAdded = self.add_tx(*tx_data).to_bytes(1, 'little')
+            client_socket.send(wasAdded)
+
+        elif command == BLOCK_COMMAND:
+            pass
+
+        client_socket.close()
 
 if __name__ == '__main__':
     ip, port, version = sys.argv[1], sys.argv[2], sys.argv[3]
@@ -401,4 +419,3 @@ if __name__ == '__main__':
         conexions.append((sys.argv[ind + 4], int(sys.argv[ind + 5])))
 
     n = Node(ip=ip, port=int(port), conexions=conexions, version=version)
-    n.listen_thread.join()
