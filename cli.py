@@ -3,14 +3,16 @@ import re
 import socket
 
 from whaaaaat import prompt
-from node import metadata, GUI_COMMAND, VERACK_COMMAND, TX_COMMAND
+from node import metadata, GUI_COMMAND, VERACK_COMMAND, TX_COMMAND, CREATE_BLOCK_COMMAND, BLOCK_COMMAND
 
 SELECTED_ACTION = 'selected_action'
 TX_ID = 'tx_id'
+TX_IDS = 'tx_ids'
 TX_VALUE = 'tx_value'
-CREATE_TX = 'Crear transacción'
-CREATE_BLOCK = 'Crear bloque'
-CLOSE_CLI = 'Cerrar GUI'
+
+CREATE_TX_ACTION = 'Crear transacción'
+CREATE_BLOCK_ACTION = 'Crear bloque'
+CLOSE_CLI_ACTION = 'Cerrar GUI'
 
 gui_metadata = lambda command: metadata(command, '.' * 15, b'.' * 4)
 
@@ -42,7 +44,7 @@ def connect_to_node(connection):
     return client_socket
 
 
-def create_tx(client_socket: socket.socket):
+def create_and_send_tx(client_socket: socket.socket):
     questions = [{
         'type': 'input',
         'name': TX_ID,
@@ -73,6 +75,50 @@ def create_tx(client_socket: socket.socket):
         print('Transacción no pudo ser agregada')
 
 
+def create_and_send_block(client_socket: socket.socket):
+    command = gui_metadata(CREATE_BLOCK_COMMAND)
+    client_socket.send(command)
+
+    number_of_txs = int.from_bytes(client_socket.recv(4), 'little')
+
+    if number_of_txs == 0:
+        print('There are no transactions to create block')
+        return
+
+    txs = []
+    for _ in range(number_of_txs):
+        tx_id = int.from_bytes(client_socket.recv(4), 'little')
+        tx_value = int.from_bytes(client_socket.recv(4), 'little')
+        txs.append((tx_id, tx_value))
+
+    choices = [{
+            'name': f'Tx ID: {tx_id}, Value: {tx_value}',
+            'value': (tx_id, tx_value)
+        }
+        for tx_id, tx_value in txs
+    ]
+
+    actions = [{
+        'type': 'checkbox',
+        'name': TX_IDS,
+        'message': 'Selecciona las transacciones a ingresar en el bloque',
+        'choices': choices,
+    }]
+
+    answers = prompt(actions)
+    txs_selected = answers.get(TX_IDS)
+
+    command = gui_metadata(BLOCK_COMMAND)
+    client_socket.send(command)
+
+    paylaod = len(txs_selected).to_bytes(4, 'little')  # Number of txs in block
+    for tx_selected in txs_selected:
+        tx_id, tx_value = list(filter(lambda tx: tx['name'] == tx_selected, choices))[0]['value']
+        paylaod += tx_id.to_bytes(4, 'little')
+        paylaod += tx_value.to_bytes(4, 'little')
+    client_socket.send(paylaod)
+
+
 @click.command()
 @click.option(
     '-h', '--host',
@@ -98,17 +144,17 @@ def main(host, port):
         'type': 'list',
         'name': SELECTED_ACTION,
         'message': '¿Qué deseas hacer?',
-        'choices': [CREATE_TX, CREATE_BLOCK, CLOSE_CLI]
+        'choices': [CREATE_TX_ACTION, CREATE_BLOCK_ACTION, CLOSE_CLI_ACTION]
     }]
 
     answer = None
     while not answer:
         answer = prompt(actions).get(SELECTED_ACTION)
 
-    if answer == CREATE_TX:
-        create_tx(client_socket)
-    elif answer == CREATE_BLOCK:
-        pass
+    if answer == CREATE_TX_ACTION:
+        create_and_send_tx(client_socket)
+    elif answer == CREATE_BLOCK_ACTION:
+        create_and_send_block(client_socket)
 
     client_socket.close()
 

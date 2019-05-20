@@ -26,16 +26,18 @@ class Blockchain():
 
     def add_block(self, transactions, type='block', block_hash=False):
         # Method for adding block to blockchain
-        if block_hash and block_hash in self.blocks: return False, block_hash
+        if block_hash and block_hash in self.blocks:
+            return False, block_hash
 
         # Create Block instance with information received
-        prev_block_hash = self.head_block_hash if type=='block' else None
+        prev_block_hash = self.head_block_hash if type == 'block' else None
         block = Block(type, prev_block_hash, transactions)
         # TODO: Serialize and hash bock
         # block_hash = self.hash_block(block.serialize())
         # self.blocks[block_hash] = block
 
-        if not block_hash: block_hash = self.head_block_hash + 1
+        if not block_hash:
+            block_hash = self.head_block_hash + 1
         self.blocks[block_hash] = block
         self.head_block_hash = block_hash
         return True, self.head_block_hash

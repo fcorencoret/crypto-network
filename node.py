@@ -8,6 +8,7 @@ VERSION_COMMAND = 'version.....'
 VERACK_COMMAND = 'verack......'
 TRANSACTION_COMMAND = 'transaction.'
 BLOCK_COMMAND = 'block.......'
+CREATE_BLOCK_COMMAND = 'create_block'
 GETBLOCKS_COMMAND = 'getblocks...'
 INV_COMMAND = 'inv.........'
 GETDATA_COMMAND = 'getdata.....'
@@ -82,7 +83,7 @@ class Node():
         if command == VERSION_COMMAND:
             self.receive_conexion_handler(client_socket)
         elif command == GUI_COMMAND:
-            self.gui_handler(client_socket)
+            threading.Thread(target=self.gui_handler, args=(client_socket,)).start()
             return
 
         if (ip, port) not in self.peers:
@@ -291,7 +292,7 @@ class Node():
     def receive_tx_handler(self, client_socket, tx_uniqueID=False):
         tx_metadata = client_socket.recv(8)
         tx_uniqueID, value = self.decode_tx_metadata(tx_metadata)
-        self.add_tx(value, tx_uniqueID)
+        self.add_tx(tx_uniqueID, value)
         client_socket.close()
 
     def get_block_data(self, block_hash):
@@ -396,7 +397,7 @@ class Node():
         outstanding_txs_strings = [str(tx) for tx in self.outstanding_txs_pool]
         return outstanding_txs_strings
 
-    def gui_handler(self, client_socket):
+    def gui_handler(self, client_socket: socket.socket):
         self.send_verack_handler(client_socket)
         command_metadata = client_socket.recv(31)
         command = command_metadata[:12].decode('utf-8')
@@ -407,8 +408,35 @@ class Node():
             wasAdded = self.add_tx(*tx_data).to_bytes(1, 'little')
             client_socket.send(wasAdded)
 
-        elif command == BLOCK_COMMAND:
-            pass
+        elif command == CREATE_BLOCK_COMMAND:
+            number_of_txs = len(self.outstanding_txs_pool).to_bytes(4, 'little')
+            client_socket.send(number_of_txs)
+
+            payload = b''
+            for tx in self.outstanding_txs_pool:
+                tx_id, tx_value = tx.data['uniqueID'], tx.data['value']
+                payload += tx_id.to_bytes(4, 'little')
+                payload += tx_value.to_bytes(4, 'little')
+            client_socket.send(payload)
+
+            command_metadata = client_socket.recv(31)
+            command = command_metadata[:12].decode('utf-8')
+            if command != BLOCK_COMMAND:
+                print('Did not receive block command')
+                client_socket.close()
+                return
+
+            metadata_new_block = client_socket.recv(4)
+            number_of_txs_in_block = int.from_bytes(metadata_new_block, 'little')
+
+            txs = []
+            for _ in range(number_of_txs_in_block):
+                tx_metadata = client_socket.recv(8)
+                tx_id = int.from_bytes(tx_metadata[:4], 'little')
+                tx_value = int.from_bytes(tx_metadata[4:], 'little')
+                txs.append((tx_id, tx_value))
+
+            self.add_block(txs)
 
         client_socket.close()
 
