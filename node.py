@@ -447,8 +447,6 @@ class Node():
                 self.add_block([(5, 300), (6, 300)])
                 self.add_block([(7, 400), (8, 400)])
                 self.add_block([(9, 500), (10, 500)])
-                self.add_tx(11, 100)
-                self.add_tx(12, 150)
 
             elif command == GUICLOSE_COMMAND:
                 keep_open = False
