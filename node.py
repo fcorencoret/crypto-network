@@ -20,7 +20,6 @@ GETTXS_COMMAND = 'gettxs......'
 NEWBLOCK_COMMAND = 'newblock....'
 TX_COMMAND = 'tx..........'
 GUI_COMMAND = 'gui.........'
-CLOSE_NODE_COMMAND = 'closenode...'
 CREATE_CONNECTION = 'connection..'
 GUICLOSE_COMMAND = 'guiclose....'
 DEFAULT_DATA_COMMAND = 'defaultdata.'
@@ -66,10 +65,9 @@ class Node():
                 # self.send_gettxs_handler(conexion)
 
     def listen(self):
-        while self.keep_active:
+        while True:
             client_socket, client_address = self.server_socket.accept()
             self.message_handler(client_socket)
-        self.server_socket.close()
 
     def message_handler(self, client_socket):
         command_metadata = client_socket.recv(31)
@@ -94,9 +92,6 @@ class Node():
             self.receive_block_hanlder(client_socket)
         elif command == TX_COMMAND:
             self.receive_tx_handler(client_socket)
-        elif command == CLOSE_NODE_COMMAND:
-            self.keep_active = False
-            client_socket.close()
         else:
             client_socket.close()
 
