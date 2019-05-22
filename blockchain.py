@@ -44,10 +44,10 @@ class Blockchain():
 
     def __str__(self):
         tmp = ''
-        tmp += 'Blockchain:\n'
+        tmp += 'Blockchain\n'
         for i in range(self.head_block_hash + 1):
             current_block = str(self.blocks[i])
-            tmp += f'Block {i} | {current_block} \n'
+            tmp += f'\tBlock {i} | {current_block} \n'
         return tmp
 
     def __len__(self):
@@ -76,7 +76,7 @@ class Block():
 
     def __str__(self):
         str_transactions = [str(transaction) for transaction in self.data['transactions']]
-        return 'type: {} - prev_block_hash: {} - transactions: {}'.\
+        return 'type: {} - prev_block_hash: {} - txs: {}'.\
         format(self.data['type'], self.data['prev_block_hash'], str_transactions)
 
 
@@ -89,4 +89,4 @@ class Transaction():
         }
 
     def __str__(self):
-        return f'Transaction uniqueID {self.data["uniqueID"]} | value {self.data["value"]}'
+        return f'Tx ID {self.data["uniqueID"]} | Value {self.data["value"]}'

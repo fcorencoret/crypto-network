@@ -2,6 +2,7 @@ import socket
 import threading
 import sys
 import time
+import os
 from blockchain import Blockchain, Transaction
 
 VERSION_COMMAND = 'version.....'
@@ -20,6 +21,7 @@ GUI_COMMAND = 'gui.........'
 # TODO
 MAX_BLOCKS_TO_SEND = 100
 SECONDS_TO_ASK = 5
+MAX_EVENTS_PRINTED = 30
 
 metadata = lambda command, ip, port: f'{command}{ip}'.encode('utf-8') + port
 
@@ -27,10 +29,10 @@ metadata = lambda command, ip, port: f'{command}{ip}'.encode('utf-8') + port
 class Node():
     def __init__(self, ip='0.0.0.0', port=8080, max_connections=5, conexions=[], version='1.0'):
         # Create server socket
+        self.__events = []
         self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.server_socket.bind((ip, port))
         self.server_socket.listen(max_connections)
-        print('Server socket created and listening')
         self.listen_thread = threading.Thread(target=self.listen)
         self.listen_thread.start()
 
@@ -44,6 +46,8 @@ class Node():
         self.version = version
 
         self.blockchain = Blockchain()
+
+        self.__update_events(f'Server socket created and listening {ip}:{port}')
         # Test for syncing blockchain
         if len(conexions) == 0:
             self.add_block([(1, 100), (2, 100)])
@@ -54,9 +58,6 @@ class Node():
             self.add_tx(self.blockchain.head_block_hash, 100)
             self.add_tx(self.blockchain.head_block_hash + 1, 150)
 
-        print(f'Initial Blockchain \n{self.blockchain}')
-        print(f'Initial Outstanding_Txs_Pool \n{self.print_outstanding_txs_pool()}')
-
         # Load and establish conexions
         for conexion in conexions:
             self.send_conexion_handler(conexion)
@@ -65,12 +66,12 @@ class Node():
                 # self.send_gettxs_handler(conexion)
 
         # Test for adding future blocks to network
-        if len(conexions) > 0:
-            self.add_tx(15, 320)
-            self.add_tx(16, 150)
-            self.add_block([(11, 600), (12, 600)])
-            self.add_block([(13, 700), (14, 700)])
-            self.add_block([(15, 800), (16, 800)])
+        # if len(conexions) > 0:
+        #     self.add_tx(15, 320)
+        #     self.add_tx(16, 150)
+        #     self.add_block([(11, 600), (12, 600)])
+        #     self.add_block([(13, 700), (14, 700)])
+        #     self.add_block([(15, 800), (16, 800)])
 
     def listen(self):
         while True:
@@ -87,7 +88,7 @@ class Node():
             return
 
         if (ip, port) not in self.peers:
-            print('Unknown node trying to send message')
+            self.__update_events('Unknown node trying to send message')
             client_socket.close()
             return
 
@@ -106,23 +107,23 @@ class Node():
         # Listen to rest of message
         payload = client_socket.recv(22)
         version, server_address, server_port, = self.decode_version(payload)
-        print(f'Node trying to connect with version {version}, ip {server_address}, port {server_port}')
+        self.__update_events(f'Node trying to connect with version {version}, ip {server_address}, port {server_port}')
 
         if version != self.version:
             # Node with uncompatible version trying to connect
-            print('Node with uncompatible version. Rejected connection')
+            self.__update_events(f'Node ({server_address}, {server_port}) with uncompatible version {version}. Rejected connection')
             client_socket.close()
             return
 
         if len(self.peers) == self.max_connections:
             # Node connected with max connections
-            print('Node with maximun connections limit. Rejected connection')
+            self.__update_events('Node with maximun connections limit. Rejected connection')
             client_socket.close()
             return
 
         self.send_verack_handler(client_socket)
         client_socket.close()
-        print('Compatible version, sending verack')
+        self.__update_events(f'Node ({server_address}, {server_port}) compatible. Sending verack')
 
         # Check if node in peers, add to peers
         if (server_address, server_port) not in self.peers:
@@ -140,13 +141,13 @@ class Node():
         command = command_metadata[:12].decode('utf-8')
         if command != VERACK_COMMAND:
             # Message Received is not verack
-            print('Did not receive verack')
+            self.__update_events('Did not receive verack')
             client_socket.close()
             return
 
         # If verack Received, add conexion to peers
         self.peers.append(conexion)
-        print('Received verack and node added to peer')
+        self.__update_events(f'Received verack and node {conexion} added to peers')
 
         # Close client socket
         client_socket.close()
@@ -156,7 +157,7 @@ class Node():
 
         command = self.metadata(GETBLOCKS_COMMAND)
         client_socket.send(command)
-        print('Send getblocks command')
+        self.__update_events('Send getblocks command')
         client_socket.send(self.current_height.to_bytes(4, 'little'))
 
         # Receive command
@@ -164,15 +165,15 @@ class Node():
         command = command_metadata[:12].decode('utf-8')
         if command != INV_COMMAND:
             # Did not receive inventory
-            print('Did not receive inventory')
+            self.__update_events('Did not receive inventory')
             client_socket.close()
             return
-        print('Received inv command')
+        self.__update_events('Received inv command')
 
         # Receive inv metadata
         inv_metadata = client_socket.recv(8)
         heigth, number_blocks_hashes = self.decode_inv_metadata(inv_metadata)
-        print(f'Blockchain out of sync. Node height {self.current_height} and received heigth {heigth}. Receiving {number_blocks_hashes} blocks')
+        self.__update_events(f'Blockchain out of sync. Node height {self.current_height} and received heigth {heigth}. Receiving {number_blocks_hashes} blocks')
 
         # Receive inv blocks hashes
         block_hashes = []
@@ -183,7 +184,6 @@ class Node():
 
         for block_hash in block_hashes:
             self.send_getdata_handler(conexion, block_hash)
-        print(f'Updated blockchain \n {self.blockchain}')
 
     def send_inv_handler(self, client_socket):
         # Height received from GETBLOCKS
@@ -197,11 +197,11 @@ class Node():
 
         command = self.metadata(INV_COMMAND)
         client_socket.send(command)
-        print('Send inv command')
+        self.__update_events('Sending inv command')
         payload = self.current_height.to_bytes(4, 'little')
-        number_blocks_hashes = min(self.current_height - heigth,  MAX_BLOCKS_TO_SEND)
+        number_blocks_hashes = min(self.current_height - heigth, MAX_BLOCKS_TO_SEND)
         payload += number_blocks_hashes.to_bytes(4, 'little')
-        print(f'Peer Blockchain out of sync. Sending {number_blocks_hashes} blocks')
+        self.__update_events(f'Peer Blockchain out of sync. Sending {number_blocks_hashes} blocks')
 
         # Iterate over blockchain to obtain desired block
         sent_blocks = 0
@@ -231,7 +231,7 @@ class Node():
         client_socket.send(command)
         payload = block_hash
         client_socket.send(payload)
-        print(f'Sent getdata for block {int.from_bytes(block_hash, "little")}')
+        self.__update_events(f'Sent getdata for block {int.from_bytes(block_hash, "little")}')
 
         # Check if Receive block command
         command_metadata = client_socket.recv(31)
@@ -245,7 +245,7 @@ class Node():
     def receive_block_hanlder(self, client_socket):
         block_metadata = client_socket.recv(12)
         block_hash, prev_block_hash, number_of_txs = self.decode_block_metadata(block_metadata)
-        print(f'Received block {block_hash} with prev_block_hash {prev_block_hash} and number_of_txs {number_of_txs}')
+        self.__update_events(f'Received block {block_hash} with prev_block_hash {prev_block_hash} and number_of_txs {number_of_txs}')
         block_txs = []
         for _ in range(number_of_txs):
             tx_metadata = client_socket.recv(8)
@@ -265,7 +265,7 @@ class Node():
         client_socket.send(command)
         payload = block_hash.to_bytes(4, 'little') + prev_block_hash.to_bytes(4, 'little') + number_of_txs.to_bytes(4, 'little')
         client_socket.send(payload)
-        print(f'Sent block {block_hash} with prev_block_hash {prev_block_hash} and {number_of_txs} txs')
+        self.__update_events(f'Sent block {block_hash} with prev_block_hash {prev_block_hash} and {number_of_txs} txs')
         for tx in block_txs:
             # Send 4 bytes with the value of the tx
             payload = tx.data['uniqueID'].to_bytes(4, 'little')
@@ -286,7 +286,7 @@ class Node():
         client_socket.send(command)
         payload = tx_uniqueID.to_bytes(4, 'little') + value.to_bytes(4, 'little')
         client_socket.send(payload)
-        print(f'Sent transaction {tx_uniqueID} with value {value}')
+        self.__update_events(f'Sent transaction {tx_uniqueID} with value {value}')
         client_socket.close()
 
     def receive_tx_handler(self, client_socket, tx_uniqueID=False):
@@ -310,35 +310,33 @@ class Node():
         added_block, block_hash = self.blockchain.add_block(block_txs, block_hash=block_hash)
 
         if added_block:
-            print(f'Added block {block_hash}')
+            self.__update_events(f'Added block {block_hash}')
             # Eliminate txs from outstanding_txs_pool
             for (tx_uniqueID, value) in block_txs:
                 if any(x.data['uniqueID'] == tx_uniqueID for x in self.outstanding_txs_pool):
                     self.outstanding_txs_pool = list(filter(lambda x: x.data['uniqueID'] != tx_uniqueID, self.outstanding_txs_pool))
-                    print(f'Eliminating tx {tx_uniqueID} from outstanding_txs_pool')
-                    print(f'Updated outstanding_txs_pool {self.print_outstanding_txs_pool()}')
+                    self.__update_events(f'Eliminating tx {{ id: {tx_uniqueID}, value: {value} }} from outstanding_txs_pool')
 
-            print(f'Updated blockchain {self.blockchain}')
             if self.peers:
-                print(f'Propagating block {block_hash} to peers')
+                self.__update_events(f'Propagating block {block_hash} to peers')
             # Propagate block to peers
             for conexion in self.peers:
                 self.new_block_handler(conexion, block_hash)
         else:
-            print(f'Block {block_hash} already in Blockchain')
+            self.__update_events(f'Block {block_hash} already in Blockchain')
 
     def add_tx(self, tx_uniqueID, value):
         # Check if tx in outstanding_txs_pool
         if any(x.data['uniqueID'] == tx_uniqueID for x in self.outstanding_txs_pool):
-            print(f'Transaction {tx_uniqueID} already in outstanding_txs_pool')
+            self.__update_events(f'Transaction {tx_uniqueID} already in outstanding_txs_pool')
             return False
         # Tx not in outstanding_txs_pool. Proceed to append
         self.outstanding_txs_pool.append(Transaction(tx_uniqueID, value))
 
-        print(f'Added tx {tx_uniqueID} with value {value}')
-        print(f'Updated outstanding_txs_pool {self.print_outstanding_txs_pool()}')
+        self.__update_events(f'Added tx {{ id: {tx_uniqueID}, value: {value} }}')
+
         if self.peers:
-            print(f'Propagating tx {tx_uniqueID} to peers')
+            self.__update_events(f'Propagating tx {tx_uniqueID} to peers')
         for conexion in self.peers:
             self.send_tx_handler(conexion, tx_uniqueID, value)
 
@@ -382,7 +380,7 @@ class Node():
         # Send command version
         command = self.metadata(VERSION_COMMAND)
         client_socket.send(command)
-        print('Send version command')
+        self.__update_events('Send version command')
 
         # Send command version
         payload = self.version.encode('utf-8') + self.ip.encode('utf-8') + self.port.to_bytes(4, 'little')
@@ -422,7 +420,7 @@ class Node():
             command_metadata = client_socket.recv(31)
             command = command_metadata[:12].decode('utf-8')
             if command != BLOCK_COMMAND:
-                print('Did not receive block command')
+                self.__update_events('Did not receive block command')
                 client_socket.close()
                 return
 
@@ -439,6 +437,30 @@ class Node():
             self.add_block(txs)
 
         client_socket.close()
+
+    def __update_events(self, event=None):
+        os.system('cls' if os.name == 'nt' else 'clear')
+
+        if event:
+            self.__events.append(event)
+
+        print('Events')
+        print('\t' + self.__events[0])
+        if len(self.__events) > MAX_EVENTS_PRINTED:
+            print('\t...')
+        for event in self.__events[1:][-MAX_EVENTS_PRINTED:]:
+            print('\t' + event)
+        print('\n')
+
+        print(self.blockchain)
+        print('\n')
+
+        otxp = self.print_outstanding_txs_pool()
+        print('Outstanding Txs Pool')
+        for otx in otxp:
+            print('\t' + otx)
+        if not otxp:
+            print('\tEmpty')
 
 if __name__ == '__main__':
     ip, port, version = sys.argv[1], sys.argv[2], sys.argv[3]
