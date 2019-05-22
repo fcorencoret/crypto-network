@@ -3,13 +3,18 @@ import re
 import socket
 
 from whaaaaat import prompt
-from node import metadata, GUI_COMMAND, VERACK_COMMAND, TX_COMMAND, CREATE_BLOCK_COMMAND, BLOCK_COMMAND
+from node import metadata, GUI_COMMAND, VERACK_COMMAND, TX_COMMAND,\
+                    CREATE_BLOCK_COMMAND, BLOCK_COMMAND, CREATE_CONNECTION, \
+                    GUICLOSE_COMMAND
 
 SELECTED_ACTION = 'selected_action'
 TX_ID = 'tx_id'
 TX_IDS = 'tx_ids'
 TX_VALUE = 'tx_value'
+IP_INPUT = 'ip'
+PORT_INPUT = 'port'
 
+CREATE_CONNECTION_ACTION = 'Crear conexión'
 CREATE_TX_ACTION = 'Crear transacción'
 CREATE_BLOCK_ACTION = 'Crear bloque'
 CLOSE_CLI_ACTION = 'Cerrar GUI'
@@ -119,6 +124,32 @@ def create_and_send_block(client_socket: socket.socket):
     client_socket.send(paylaod)
 
 
+def create_and_send_connection(client_socket: socket.socket):
+    command = gui_metadata(CREATE_CONNECTION)
+    client_socket.send(command)
+
+    questions = [{
+        'type': 'input',
+        'name': IP_INPUT,
+        'message': 'Ingresa la IP del nodo a agregar'
+    }, {
+        'type': 'input',
+        'name': PORT_INPUT,
+        'message': 'Ingresa el puerto del nodo a agregar'
+    }]
+
+    answers = prompt(questions)
+    ip = answers[IP_INPUT]
+    port = int(answers[PORT_INPUT])
+
+    while len(ip) < 15:
+        ip += ' '
+
+    payload = ip.encode('utf-8')
+    payload += port.to_bytes(4, 'little')
+    client_socket.send(payload)
+
+
 @click.command()
 @click.option(
     '-h', '--host',
@@ -140,21 +171,34 @@ def main(host, port):
         print('It couldn\'t connect to node')
         return
 
-    actions = [{
-        'type': 'list',
-        'name': SELECTED_ACTION,
-        'message': '¿Qué deseas hacer?',
-        'choices': [CREATE_TX_ACTION, CREATE_BLOCK_ACTION, CLOSE_CLI_ACTION]
-    }]
+    keep_open = True
+    while keep_open:
+        actions = [{
+            'type': 'list',
+            'name': SELECTED_ACTION,
+            'message': '¿Qué deseas hacer?',
+            'choices': [
+                CREATE_CONNECTION_ACTION,
+                CREATE_TX_ACTION,
+                CREATE_BLOCK_ACTION,
+                CLOSE_CLI_ACTION
+            ],
+        }]
 
-    answer = None
-    while not answer:
-        answer = prompt(actions).get(SELECTED_ACTION)
+        answer = None
+        while not answer:
+            answer = prompt(actions).get(SELECTED_ACTION)
 
-    if answer == CREATE_TX_ACTION:
-        create_and_send_tx(client_socket)
-    elif answer == CREATE_BLOCK_ACTION:
-        create_and_send_block(client_socket)
+        if answer == CREATE_TX_ACTION:
+            create_and_send_tx(client_socket)
+        elif answer == CREATE_BLOCK_ACTION:
+            create_and_send_block(client_socket)
+        elif answer == CREATE_CONNECTION_ACTION:
+            create_and_send_connection(client_socket)
+        else:
+            command = gui_metadata(GUICLOSE_COMMAND)
+            client_socket.send(command)
+            keep_open = False
 
     client_socket.close()
 

@@ -17,6 +17,8 @@ GETTXS_COMMAND = 'gettxs......'
 NEWBLOCK_COMMAND = 'newblock....'
 TX_COMMAND = 'tx..........'
 GUI_COMMAND = 'gui.........'
+CREATE_CONNECTION = 'connection..'
+GUICLOSE_COMMAND = 'guiclose....'
 
 # TODO
 MAX_BLOCKS_TO_SEND = 100
@@ -49,14 +51,14 @@ class Node():
 
         self.__update_events(f'Server socket created and listening {ip}:{port}')
         # Test for syncing blockchain
-        if len(conexions) == 0:
-            self.add_block([(1, 100), (2, 100)])
-            self.add_block([(3, 200), (4, 200)])
-            self.add_block([(5, 300), (6, 300)])
-            self.add_block([(7, 400), (8, 400)])
-            self.add_block([(9, 500), (10, 500)])
-            self.add_tx(self.blockchain.head_block_hash, 100)
-            self.add_tx(self.blockchain.head_block_hash + 1, 150)
+        # if len(conexions) == 0:
+        #     self.add_block([(1, 100), (2, 100)])
+        #     self.add_block([(3, 200), (4, 200)])
+        #     self.add_block([(5, 300), (6, 300)])
+        #     self.add_block([(7, 400), (8, 400)])
+        #     self.add_block([(9, 500), (10, 500)])
+        #     self.add_tx(self.blockchain.head_block_hash, 100)
+        #     self.add_tx(self.blockchain.head_block_hash + 1, 150)
 
         # Load and establish conexions
         for conexion in conexions:
@@ -81,6 +83,7 @@ class Node():
     def message_handler(self, client_socket):
         command_metadata = client_socket.recv(31)
         command, ip, port = command_metadata[:12].decode('utf-8'), command_metadata[12: 27].decode('utf-8').strip(), int.from_bytes(command_metadata[27:], 'little')
+        self.__update_events(f'<- {command.strip(".").upper()} from node {ip, port}')
         if command == VERSION_COMMAND:
             self.receive_conexion_handler(client_socket)
         elif command == GUI_COMMAND:
@@ -157,6 +160,7 @@ class Node():
 
         command = self.metadata(GETBLOCKS_COMMAND)
         client_socket.send(command)
+        self.__update_events(f'-> {GETBLOCKS_COMMAND.strip(".").upper()}')
         self.__update_events('Send getblocks command')
         client_socket.send(self.current_height.to_bytes(4, 'little'))
 
@@ -197,6 +201,7 @@ class Node():
 
         command = self.metadata(INV_COMMAND)
         client_socket.send(command)
+        self.__update_events(f'-> {INV_COMMAND.strip(".").upper()}')
         self.__update_events('Sending inv command')
         payload = self.current_height.to_bytes(4, 'little')
         number_blocks_hashes = min(self.current_height - heigth, MAX_BLOCKS_TO_SEND)
@@ -229,6 +234,7 @@ class Node():
         # Send getdata command
         client_socket = self.create_socket(conexion)
         client_socket.send(command)
+        self.__update_events(f'-> {GETDATA_COMMAND.strip(".").upper()}')
         payload = block_hash
         client_socket.send(payload)
         self.__update_events(f'Sent getdata for block {int.from_bytes(block_hash, "little")}')
@@ -263,6 +269,7 @@ class Node():
 
         command = self.metadata(BLOCK_COMMAND)
         client_socket.send(command)
+        self.__update_events(f'-> {BLOCK_COMMAND.strip(".").upper()}')
         payload = block_hash.to_bytes(4, 'little') + prev_block_hash.to_bytes(4, 'little') + number_of_txs.to_bytes(4, 'little')
         client_socket.send(payload)
         self.__update_events(f'Sent block {block_hash} with prev_block_hash {prev_block_hash} and {number_of_txs} txs')
@@ -284,6 +291,7 @@ class Node():
         # Send tx command
         command = self.metadata(TX_COMMAND)
         client_socket.send(command)
+        self.__update_events(f'-> {TX_COMMAND.strip(".").upper()}')
         payload = tx_uniqueID.to_bytes(4, 'little') + value.to_bytes(4, 'little')
         client_socket.send(payload)
         self.__update_events(f'Sent transaction {tx_uniqueID} with value {value}')
@@ -380,7 +388,7 @@ class Node():
         # Send command version
         command = self.metadata(VERSION_COMMAND)
         client_socket.send(command)
-        self.__update_events('Send version command')
+        self.__update_events(f'-> {VERSION_COMMAND.strip(".").upper()}')
 
         # Send command version
         payload = self.version.encode('utf-8') + self.ip.encode('utf-8') + self.port.to_bytes(4, 'little')
@@ -390,6 +398,7 @@ class Node():
         # Send command version
         command = self.metadata(VERACK_COMMAND)
         client_socket.send(command)
+        self.__update_events(f'-> {VERACK_COMMAND.strip(".").upper()}')
 
     def print_outstanding_txs_pool(self):
         outstanding_txs_strings = [str(tx) for tx in self.outstanding_txs_pool]
@@ -397,50 +406,65 @@ class Node():
 
     def gui_handler(self, client_socket: socket.socket):
         self.send_verack_handler(client_socket)
-        command_metadata = client_socket.recv(31)
-        command = command_metadata[:12].decode('utf-8')
 
-        if command == TX_COMMAND:
-            tx_metadata = client_socket.recv(8)
-            tx_data = self.decode_tx_metadata(tx_metadata)
-            wasAdded = self.add_tx(*tx_data).to_bytes(1, 'little')
-            client_socket.send(wasAdded)
-
-        elif command == CREATE_BLOCK_COMMAND:
-            number_of_txs = len(self.outstanding_txs_pool).to_bytes(4, 'little')
-            client_socket.send(number_of_txs)
-
-            payload = b''
-            for tx in self.outstanding_txs_pool:
-                tx_id, tx_value = tx.data['uniqueID'], tx.data['value']
-                payload += tx_id.to_bytes(4, 'little')
-                payload += tx_value.to_bytes(4, 'little')
-            client_socket.send(payload)
-
+        keep_open = True
+        while keep_open:
             command_metadata = client_socket.recv(31)
             command = command_metadata[:12].decode('utf-8')
-            if command != BLOCK_COMMAND:
-                self.__update_events('Did not receive block command')
-                client_socket.close()
-                return
 
-            metadata_new_block = client_socket.recv(4)
-            number_of_txs_in_block = int.from_bytes(metadata_new_block, 'little')
-
-            txs = []
-            for _ in range(number_of_txs_in_block):
+            if command == TX_COMMAND:
                 tx_metadata = client_socket.recv(8)
-                tx_id = int.from_bytes(tx_metadata[:4], 'little')
-                tx_value = int.from_bytes(tx_metadata[4:], 'little')
-                txs.append((tx_id, tx_value))
+                tx_data = self.decode_tx_metadata(tx_metadata)
+                wasAdded = self.add_tx(*tx_data).to_bytes(1, 'little')
+                client_socket.send(wasAdded)
 
-            self.add_block(txs)
+            elif command == CREATE_BLOCK_COMMAND:
+                number_of_txs = len(self.outstanding_txs_pool).to_bytes(4, 'little')
+                client_socket.send(number_of_txs)
+
+                payload = b''
+                for tx in self.outstanding_txs_pool:
+                    tx_id, tx_value = tx.data['uniqueID'], tx.data['value']
+                    payload += tx_id.to_bytes(4, 'little')
+                    payload += tx_value.to_bytes(4, 'little')
+                client_socket.send(payload)
+
+                command_metadata = client_socket.recv(31)
+                command = command_metadata[:12].decode('utf-8')
+                if command != BLOCK_COMMAND:
+                    self.__update_events('Did not receive block command')
+                    client_socket.close()
+                    return
+
+                metadata_new_block = client_socket.recv(4)
+                number_of_txs_in_block = int.from_bytes(metadata_new_block, 'little')
+
+                txs = []
+                for _ in range(number_of_txs_in_block):
+                    tx_metadata = client_socket.recv(8)
+                    tx_id = int.from_bytes(tx_metadata[:4], 'little')
+                    tx_value = int.from_bytes(tx_metadata[4:], 'little')
+                    txs.append((tx_id, tx_value))
+
+                self.add_block(txs)
+
+            elif command == CREATE_CONNECTION:
+                connection_metadata = client_socket.recv(19)
+                connection = connection_metadata[:15].decode('utf-8').strip(), int.from_bytes(connection_metadata[15:], 'little')
+                self.send_conexion_handler(connection)
+                if connection in self.peers:
+                    self.send_getblocks_handler(connection)
+
+            elif command == GUICLOSE_COMMAND:
+                keep_open = False
 
         client_socket.close()
 
     def __update_events(self, event=None):
         os.system('cls' if os.name == 'nt' else 'clear')
+        _, columns = os.popen('stty size', 'r').read().split()
 
+        print('=' * int(columns))
         if event:
             self.__events.append(event)
 
