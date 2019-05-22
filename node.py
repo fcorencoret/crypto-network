@@ -19,6 +19,7 @@ TX_COMMAND = 'tx..........'
 GUI_COMMAND = 'gui.........'
 CREATE_CONNECTION = 'connection..'
 GUICLOSE_COMMAND = 'guiclose....'
+DEFAULT_DATA_COMMAND = 'defaultdata.'
 
 # TODO
 MAX_BLOCKS_TO_SEND = 100
@@ -41,7 +42,8 @@ class Node():
         self.peers = []
         self.outstanding_txs_pool = []
         self.ip = ip
-        while len(self.ip) < 15: self.ip += " "
+        while len(self.ip) < 15:
+            self.ip += ' '
         self.port = port
         self.metadata = lambda command: metadata(command, self.ip, self.port.to_bytes(4, 'little'))
         self.max_connections = max_connections
@@ -57,8 +59,8 @@ class Node():
         #     self.add_block([(5, 300), (6, 300)])
         #     self.add_block([(7, 400), (8, 400)])
         #     self.add_block([(9, 500), (10, 500)])
-        #     self.add_tx(self.blockchain.head_block_hash, 100)
-        #     self.add_tx(self.blockchain.head_block_hash + 1, 150)
+        #     self.add_tx(11, 100)
+        #     self.add_tx(12, 150)
 
         # Load and establish conexions
         for conexion in conexions:
@@ -454,6 +456,15 @@ class Node():
                 self.send_conexion_handler(connection)
                 if connection in self.peers:
                     self.send_getblocks_handler(connection)
+
+            elif command == DEFAULT_DATA_COMMAND:
+                self.add_block([(1, 100), (2, 100)])
+                self.add_block([(3, 200), (4, 200)])
+                self.add_block([(5, 300), (6, 300)])
+                self.add_block([(7, 400), (8, 400)])
+                self.add_block([(9, 500), (10, 500)])
+                self.add_tx(11, 100)
+                self.add_tx(12, 150)
 
             elif command == GUICLOSE_COMMAND:
                 keep_open = False

@@ -76,7 +76,7 @@ class Block():
 
     def __str__(self):
         str_transactions = [str(transaction) for transaction in self.data['transactions']]
-        return 'type: {} - prev_block_hash: {} - txs: {}'.\
+        return 'type: {} - prev_block: {} - txs: {}'.\
         format(self.data['type'], self.data['prev_block_hash'], str_transactions)
 
 
