@@ -1,11 +1,12 @@
 import click
 import re
 import socket
+import os
 
 from whaaaaat import prompt
 from node import metadata, GUI_COMMAND, VERACK_COMMAND, TX_COMMAND,\
                     CREATE_BLOCK_COMMAND, BLOCK_COMMAND, CREATE_CONNECTION, \
-                    GUICLOSE_COMMAND, DEFAULT_DATA_COMMAND
+                    GUICLOSE_COMMAND, DEFAULT_DATA_COMMAND, CLOSE_NODE_COMMAND
 
 SELECTED_ACTION = 'selected_action'
 TX_ID = 'tx_id'
@@ -18,6 +19,7 @@ CREATE_CONNECTION_ACTION = 'Crear conexión'
 CREATE_TX_ACTION = 'Crear transacción'
 CREATE_BLOCK_ACTION = 'Crear bloque'
 CREATE_DEFAULT_DATA_ACTION = 'Crear 5 bloques'
+CLOSE_NODE_ACTION = 'Cerrar nodo'
 CLOSE_CLI_ACTION = 'Cerrar GUI'
 
 gui_metadata = lambda command: metadata(command, '.' * 15, b'.' * 4)
@@ -183,12 +185,14 @@ def main(host, port):
                 CREATE_TX_ACTION,
                 CREATE_BLOCK_ACTION,
                 CREATE_DEFAULT_DATA_ACTION,
+                CLOSE_NODE_ACTION,
                 CLOSE_CLI_ACTION,
             ],
         }]
 
         answer = None
         while not answer:
+            os.system('cls' if os.name == 'nt' else 'clear')
             answer = prompt(actions).get(SELECTED_ACTION)
 
         if answer == CREATE_TX_ACTION:
@@ -199,6 +203,9 @@ def main(host, port):
             create_and_send_connection(client_socket)
         elif answer == CREATE_DEFAULT_DATA_ACTION:
             command = gui_metadata(DEFAULT_DATA_COMMAND)
+            client_socket.send(command)
+        elif answer == CLOSE_NODE_ACTION:
+            command = gui_metadata(CLOSE_NODE_COMMAND)
             client_socket.send(command)
         else:
             command = gui_metadata(GUICLOSE_COMMAND)

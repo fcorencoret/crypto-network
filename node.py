@@ -5,6 +5,9 @@ import time
 import os
 from blockchain import Blockchain, Transaction
 
+# -> Enviar un mensaje
+# <- Recibir un mensaje
+
 VERSION_COMMAND = 'version.....'
 VERACK_COMMAND = 'verack......'
 TRANSACTION_COMMAND = 'transaction.'
@@ -17,6 +20,7 @@ GETTXS_COMMAND = 'gettxs......'
 NEWBLOCK_COMMAND = 'newblock....'
 TX_COMMAND = 'tx..........'
 GUI_COMMAND = 'gui.........'
+CLOSE_NODE_COMMAND = 'closenode...'
 CREATE_CONNECTION = 'connection..'
 GUICLOSE_COMMAND = 'guiclose....'
 DEFAULT_DATA_COMMAND = 'defaultdata.'
@@ -24,7 +28,7 @@ DEFAULT_DATA_COMMAND = 'defaultdata.'
 # TODO
 MAX_BLOCKS_TO_SEND = 100
 SECONDS_TO_ASK = 5
-MAX_EVENTS_PRINTED = 30
+MAX_EVENTS_PRINTED = 50
 
 metadata = lambda command, ip, port: f'{command}{ip}'.encode('utf-8') + port
 
@@ -32,6 +36,7 @@ metadata = lambda command, ip, port: f'{command}{ip}'.encode('utf-8') + port
 class Node():
     def __init__(self, ip='0.0.0.0', port=8080, max_connections=5, conexions=[], version='1.0'):
         # Create server socket
+        self.keep_active = True
         self.__events = []
         self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.server_socket.bind((ip, port))
@@ -52,15 +57,6 @@ class Node():
         self.blockchain = Blockchain()
 
         self.__update_events(f'Server socket created and listening {ip}:{port}')
-        # Test for syncing blockchain
-        # if len(conexions) == 0:
-        #     self.add_block([(1, 100), (2, 100)])
-        #     self.add_block([(3, 200), (4, 200)])
-        #     self.add_block([(5, 300), (6, 300)])
-        #     self.add_block([(7, 400), (8, 400)])
-        #     self.add_block([(9, 500), (10, 500)])
-        #     self.add_tx(11, 100)
-        #     self.add_tx(12, 150)
 
         # Load and establish conexions
         for conexion in conexions:
@@ -69,18 +65,11 @@ class Node():
                 self.send_getblocks_handler(conexion)
                 # self.send_gettxs_handler(conexion)
 
-        # Test for adding future blocks to network
-        # if len(conexions) > 0:
-        #     self.add_tx(15, 320)
-        #     self.add_tx(16, 150)
-        #     self.add_block([(11, 600), (12, 600)])
-        #     self.add_block([(13, 700), (14, 700)])
-        #     self.add_block([(15, 800), (16, 800)])
-
     def listen(self):
-        while True:
+        while self.keep_active:
             client_socket, client_address = self.server_socket.accept()
             self.message_handler(client_socket)
+        self.server_socket.close()
 
     def message_handler(self, client_socket):
         command_metadata = client_socket.recv(31)
@@ -105,6 +94,9 @@ class Node():
             self.receive_block_hanlder(client_socket)
         elif command == TX_COMMAND:
             self.receive_tx_handler(client_socket)
+        elif command == CLOSE_NODE_COMMAND:
+            self.keep_active = False
+            client_socket.close()
         else:
             client_socket.close()
 
@@ -152,7 +144,7 @@ class Node():
 
         # If verack Received, add conexion to peers
         self.peers.append(conexion)
-        self.__update_events(f'Received verack and node {conexion} added to peers')
+        self.__update_events(f'<- {VERACK_COMMAND.strip(".").upper()} node {conexion} added to peers')
 
         # Close client socket
         client_socket.close()
@@ -162,8 +154,8 @@ class Node():
 
         command = self.metadata(GETBLOCKS_COMMAND)
         client_socket.send(command)
-        self.__update_events(f'-> {GETBLOCKS_COMMAND.strip(".").upper()}')
-        self.__update_events('Send getblocks command')
+        self.__update_events(f'-> {GETBLOCKS_COMMAND.strip(".").upper()} height: {self.current_height}')
+
         client_socket.send(self.current_height.to_bytes(4, 'little'))
 
         # Receive command
@@ -174,7 +166,7 @@ class Node():
             self.__update_events('Did not receive inventory')
             client_socket.close()
             return
-        self.__update_events('Received inv command')
+        self.__update_events(f'<- {INV_COMMAND.strip(".").upper()}')
 
         # Receive inv metadata
         inv_metadata = client_socket.recv(8)
@@ -204,7 +196,6 @@ class Node():
         command = self.metadata(INV_COMMAND)
         client_socket.send(command)
         self.__update_events(f'-> {INV_COMMAND.strip(".").upper()}')
-        self.__update_events('Sending inv command')
         payload = self.current_height.to_bytes(4, 'little')
         number_blocks_hashes = min(self.current_height - heigth, MAX_BLOCKS_TO_SEND)
         payload += number_blocks_hashes.to_bytes(4, 'little')
@@ -236,10 +227,9 @@ class Node():
         # Send getdata command
         client_socket = self.create_socket(conexion)
         client_socket.send(command)
-        self.__update_events(f'-> {GETDATA_COMMAND.strip(".").upper()}')
+        self.__update_events(f'-> {GETDATA_COMMAND.strip(".").upper()} for block {int.from_bytes(block_hash, "little")}')
         payload = block_hash
         client_socket.send(payload)
-        self.__update_events(f'Sent getdata for block {int.from_bytes(block_hash, "little")}')
 
         # Check if Receive block command
         command_metadata = client_socket.recv(31)
@@ -247,7 +237,7 @@ class Node():
         if command != BLOCK_COMMAND:
             client_socket.close()
             return
-
+        self.__update_events(f'<- {BLOCK_COMMAND.strip(".").upper()}')
         self.receive_block_hanlder(client_socket)
 
     def receive_block_hanlder(self, client_socket):
@@ -293,10 +283,9 @@ class Node():
         # Send tx command
         command = self.metadata(TX_COMMAND)
         client_socket.send(command)
-        self.__update_events(f'-> {TX_COMMAND.strip(".").upper()}')
+        self.__update_events(f'-> {TX_COMMAND.strip(".").upper()} {{ id: {tx_uniqueID}, value: {value} }}')
         payload = tx_uniqueID.to_bytes(4, 'little') + value.to_bytes(4, 'little')
         client_socket.send(payload)
-        self.__update_events(f'Sent transaction {tx_uniqueID} with value {value}')
         client_socket.close()
 
     def receive_tx_handler(self, client_socket, tx_uniqueID=False):
