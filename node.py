@@ -3,7 +3,10 @@ import threading
 import sys
 import time
 import os
-from blockchain import Blockchain, Transaction
+from signed_blockchain import Blockchain
+from transaction import Transaction, UnsignedTransaction, Input, Output
+import utils
+from signatures import *
 
 # -> Enviar un mensaje
 # <- Recibir un mensaje
@@ -23,6 +26,9 @@ GUI_COMMAND = 'gui.........'
 CREATE_CONNECTION = 'connection..'
 GUICLOSE_COMMAND = 'guiclose....'
 DEFAULT_DATA_COMMAND = 'defaultdata.'
+PAYCOINS_TYPE = 'p'
+CREATECOINS_TYPE = 'c'
+
 
 # TODO
 MAX_BLOCKS_TO_SEND = 100
@@ -89,7 +95,7 @@ class Node():
         elif command == GETDATA_COMMAND:
             self.send_block_handler(client_socket)
         elif command == BLOCK_COMMAND:
-            self.receive_block_hanlder(client_socket)
+            self.receive_block_handler(client_socket)
         elif command == TX_COMMAND:
             self.receive_tx_handler(client_socket)
         else:
@@ -98,7 +104,7 @@ class Node():
     def receive_conexion_handler(self, client_socket):
         # Listen to rest of message
         payload = client_socket.recv(22)
-        version, server_address, server_port, = self.decode_version(payload)
+        version, server_address, server_port, = utils.decode_version(payload)
         self.__update_events(f'Node trying to connect with version {version}, ip {server_address}, port {server_port}')
 
         if version != self.version:
@@ -123,7 +129,7 @@ class Node():
             self.send_getblocks_handler((server_address, server_port))
 
     def send_conexion_handler(self, conexion):
-        client_socket = self.create_socket(conexion)
+        client_socket = utils.create_socket(conexion)
 
         # Send version message
         self.send_version_handler(client_socket)
@@ -145,7 +151,7 @@ class Node():
         client_socket.close()
 
     def send_getblocks_handler(self, conexion):
-        client_socket = self.create_socket(conexion)
+        client_socket = utils.create_socket(conexion)
 
         command = self.metadata(GETBLOCKS_COMMAND)
         client_socket.send(command)
@@ -165,13 +171,13 @@ class Node():
 
         # Receive inv metadata
         inv_metadata = client_socket.recv(8)
-        heigth, number_blocks_hashes = self.decode_inv_metadata(inv_metadata)
+        heigth, number_blocks_hashes = utils.decode_inv_metadata(inv_metadata)
         self.__update_events(f'Blockchain out of sync. Node height {self.current_height} and received heigth {heigth}. Receiving {number_blocks_hashes} blocks')
 
         # Receive inv blocks hashes
         block_hashes = []
         for _ in range(number_blocks_hashes):
-            block_hash = client_socket.recv(4)
+            block_hash = client_socket.recv(64).decode('utf-8')
             block_hashes.append(block_hash)
         client_socket.close()
 
@@ -201,17 +207,16 @@ class Node():
         while sent_blocks < number_blocks_hashes:
             current_block_hash = self.blockchain.head_block_hash
             current_block = self.blockchain.blocks[current_block_hash]
-            while current_block_hash > heigth + 2:
-                current_block_hash = current_block.data['prev_block_hash']
+            for _ in range(heigth - sent_blocks - 2):
+                current_block_hash = current_block.prev_hash
                 current_block = self.blockchain.blocks[current_block_hash]
             # Stop iterating on the next block of the one to send, to obtain prev_block_hash
             # Special case for the head node
             if heigth + 1 == self.current_height:
                 block_hash_to_send = current_block_hash
             else:
-                block_hash_to_send = current_block.data['prev_block_hash']
-            payload += block_hash_to_send.to_bytes(4, 'little')
-            heigth += 1
+                block_hash_to_send = current_block.prev_hash
+            payload += block_hash_to_send.encode('utf-8')
             sent_blocks += 1
 
         client_socket.send(payload)
@@ -220,10 +225,10 @@ class Node():
     def send_getdata_handler(self, conexion, block_hash):
         command = self.metadata(GETDATA_COMMAND)
         # Send getdata command
-        client_socket = self.create_socket(conexion)
+        client_socket = utils.create_socket(conexion)
         client_socket.send(command)
-        self.__update_events(f'-> {GETDATA_COMMAND.strip(".").upper()} for block {int.from_bytes(block_hash, "little")}')
-        payload = block_hash
+        self.__update_events(f'-> {GETDATA_COMMAND.strip(".").upper()} for block {block_hash}')
+        payload = block_hash.encode('utf-8')
         client_socket.send(payload)
 
         # Check if Receive block command
@@ -233,48 +238,72 @@ class Node():
             client_socket.close()
             return
         self.__update_events(f'<- {BLOCK_COMMAND.strip(".").upper()}')
-        self.receive_block_hanlder(client_socket)
+        self.receive_block_handler(client_socket)
 
-    def receive_block_hanlder(self, client_socket):
-        block_metadata = client_socket.recv(12)
-        block_hash, prev_block_hash, number_of_txs = self.decode_block_metadata(block_metadata)
+    def receive_block_handler(self, client_socket):
+        block_metadata = client_socket.recv(132)
+        block_hash, prev_block_hash, number_of_txs = utils.decode_block_metadata(block_metadata)
         self.__update_events(f'Received block {block_hash} with prev_block_hash {prev_block_hash} and number_of_txs {number_of_txs}')
         block_txs = []
         for _ in range(number_of_txs):
-            tx_metadata = client_socket.recv(8)
-            unique_ID, value = self.decode_tx_metadata(tx_metadata)
-            block_txs.append((unique_ID, value))
+            tx_metadata = client_socket.recv(13)
+            txID, type, N_inputs, N_outputs, N_signs = utils.decode_tx_metadata(tx_metadata)
+            # Inputs
+            inputs = []
+            for _ in range(N_inputs):
+                input_data = client_socket.recv(68)
+                inputs.append(utils.decode_input(input_data))
+            # Outputs
+            outputs = []
+            for _ in range(N_outputs):
+                output_data = client_socket.recv(36)
+                outputs.append(utils.decode_output(output_data))
+
+            # Sigs
+            signs = {}
+            for _ in range(N_signs):
+                sign_data = client_socket.recv(36)
+                addr, sign = utils.decode_sigs(sign_data)
+                signs[addr] = sign
+
+            unsigned = UnsignedTransaction(type, inputs, outputs, txID)
+            transaction = Transaction(unsigned,signs)
+            print(f'transaction {transaction.txID}', transaction.CheckSignatures(), transaction.CheckValues())
+            block_txs.append(transaction)
+
+        block = utils.create_block(block_txs, prev_block_hash)
 
         # Add block to blockchain
-        self.add_block(block_txs, block_hash)
+        self.add_block(block)
         client_socket.close()
 
     def send_block_handler(self, client_socket, block_hash=False):
         # Get block data from hash
-        if not block_hash: block_hash = int.from_bytes(client_socket.recv(4), 'little')
+        if not block_hash: block_hash = client_socket.recv(64).decode('utf-8')
         prev_block_hash, number_of_txs, block_txs = self.get_block_data(block_hash)
 
         command = self.metadata(BLOCK_COMMAND)
         client_socket.send(command)
         self.__update_events(f'-> {BLOCK_COMMAND.strip(".").upper()}')
-        payload = block_hash.to_bytes(4, 'little') + prev_block_hash.to_bytes(4, 'little') + number_of_txs.to_bytes(4, 'little')
+        payload = block_hash.encode('utf-8') + prev_block_hash.encode('utf-8') + number_of_txs.to_bytes(4, 'little')
         client_socket.send(payload)
         self.__update_events(f'Sent block {block_hash} with prev_block_hash {prev_block_hash} and {number_of_txs} txs')
         for tx in block_txs:
             # Send 4 bytes with the value of the tx
-            payload = tx.data['uniqueID'].to_bytes(4, 'little')
+            # payload = tx.data['uniqueID'].to_bytes(4, 'little')
             # Send 4 bytes with the uniqueID of the tx
-            payload += tx.data['value'].to_bytes(4, 'little')
+            # payload += tx.data['value'].to_bytes(4, 'little')
+            payload = tx
             client_socket.send(payload)
         client_socket.close()
 
     def new_block_handler(self, conexion, block_hash):
         # Create socket to send block to conexion
-        client_socket = self.create_socket(conexion)
+        client_socket = utils.create_socket(conexion)
         self.send_block_handler(client_socket, block_hash)
 
     def send_tx_handler(self, conexion, tx_uniqueID, value):
-        client_socket = self.create_socket(conexion)
+        client_socket = utils.create_socket(conexion)
         # Send tx command
         command = self.metadata(TX_COMMAND)
         client_socket.send(command)
@@ -285,39 +314,40 @@ class Node():
 
     def receive_tx_handler(self, client_socket, tx_uniqueID=False):
         tx_metadata = client_socket.recv(8)
-        tx_uniqueID, value = self.decode_tx_metadata(tx_metadata)
+        tx_uniqueID, value = utils.decode_tx_metadata(tx_metadata)
         self.add_tx(tx_uniqueID, value)
         client_socket.close()
 
     def get_block_data(self, block_hash):
         # Get prev_block_hash as 4 bytes
         block = self.blockchain.blocks[block_hash]
-        prev_block_hash = block.data['prev_block_hash']
+        prev_block_hash = block.prev_hash
         # Get amount of tx to send as 4 bytes
-        number_of_txs = len(block.data['transactions'])
+        number_of_txs = len(block.transactions)
         # Get transactions to send
-        block_txs = block.data['transactions']
+        block_txs = block.serialize_transactions()
         return prev_block_hash, number_of_txs, block_txs
 
-    def add_block(self, block_txs, block_hash=False):
+    def add_block(self, block):
         # Try to add block to blockchain. If block already in blockchain, block_hash is False
-        added_block, block_hash = self.blockchain.add_block(block_txs, block_hash=block_hash)
+        added_block = self.blockchain.add_block(block)
+        self.__update_events(added_block)
 
-        if added_block:
-            self.__update_events(f'Added block {block_hash}')
-            # Eliminate txs from outstanding_txs_pool
-            for (tx_uniqueID, value) in block_txs:
-                if any(x.data['uniqueID'] == tx_uniqueID for x in self.outstanding_txs_pool):
-                    self.outstanding_txs_pool = list(filter(lambda x: x.data['uniqueID'] != tx_uniqueID, self.outstanding_txs_pool))
-                    self.__update_events(f'Eliminating tx {{ id: {tx_uniqueID}, value: {value} }} from outstanding_txs_pool')
+        # if added_block:
+        #     self.__update_events(f'Added block {block_hash}')
+        #     # Eliminate txs from outstanding_txs_pool
+        #     for (tx_uniqueID, value) in block_txs:
+        #         if any(x.data['uniqueID'] == tx_uniqueID for x in self.outstanding_txs_pool):
+        #             self.outstanding_txs_pool = list(filter(lambda x: x.data['uniqueID'] != tx_uniqueID, self.outstanding_txs_pool))
+        #             self.__update_events(f'Eliminating tx {{ id: {tx_uniqueID}, value: {value} }} from outstanding_txs_pool')
 
-            if self.peers:
-                self.__update_events(f'Propagating block {block_hash} to peers')
-            # Propagate block to peers
-            for conexion in self.peers:
-                self.new_block_handler(conexion, block_hash)
-        else:
-            self.__update_events(f'Block {block_hash} already in Blockchain')
+        #     if self.peers:
+        #         self.__update_events(f'Propagating block {block_hash} to peers')
+        #     # Propagate block to peers
+        #     for conexion in self.peers:
+        #         self.new_block_handler(conexion, block_hash)
+        # else:
+        #     self.__update_events(f'Block {block_hash} already in Blockchain')
 
     def add_tx(self, tx_uniqueID, value):
         # Check if tx in outstanding_txs_pool
@@ -338,37 +368,7 @@ class Node():
 
     @property
     def current_height(self):
-        return self.blockchain.head_block_hash
-
-    def create_socket(self, conexion):
-        # Create client socket
-        client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        # Connect to conexion
-        client_socket.connect(conexion)
-        return client_socket
-
-    def decode_version(self, payload):
-        version = payload[:3].decode('utf-8')
-        server_address = payload[3:18].decode('utf-8').strip()
-        server_port = int.from_bytes(payload[18: 22], 'little')
-        return version, server_address, server_port
-
-    def decode_inv_metadata(self, payload):
-        heigth = int.from_bytes(payload[:4], 'little')
-        number_of_hashes = int.from_bytes(payload[4:8], 'little')
-        return heigth, number_of_hashes
-
-    def decode_block_metadata(self, payload):
-        block_hash, prev_block_hash, number_of_tx = int.from_bytes(payload[:4], 'little'), int.from_bytes(payload[4:8], 'little'), int.from_bytes(payload[8:], 'little')
-        return block_hash, prev_block_hash, number_of_tx
-
-    def decode_tx_metadata(self, payload):
-        unique_ID, value = int.from_bytes(payload[:4], 'little'), int.from_bytes(payload[4:], 'little')
-        return unique_ID, value
-
-    def decode_inv_block_hashes(self, payload, number_of_hashes):
-        block_hashes = [payload[i * 64 : (i + 1) * 64] for i in range(number_of_hashes)]
-        return block_hashes
+        return len(self.blockchain.blocks)
 
     def send_version_handler(self, client_socket):
         # Send command version
@@ -400,7 +400,7 @@ class Node():
 
             if command == TX_COMMAND:
                 tx_metadata = client_socket.recv(8)
-                tx_data = self.decode_tx_metadata(tx_metadata)
+                tx_data = utils.decode_tx_metadata(tx_metadata)
                 wasAdded = self.add_tx(*tx_data).to_bytes(1, 'little')
                 client_socket.send(wasAdded)
 
@@ -442,11 +442,34 @@ class Node():
                     self.send_getblocks_handler(connection)
 
             elif command == DEFAULT_DATA_COMMAND:
-                self.add_block([(1, 100), (2, 100)])
-                self.add_block([(3, 200), (4, 200)])
-                self.add_block([(5, 300), (6, 300)])
-                self.add_block([(7, 400), (8, 400)])
-                self.add_block([(9, 500), (10, 500)])
+                addressA = load_pk('publickeyAlice.pem')
+                addressB = load_pk('publickeyBob.pem')
+                addressC = load_pk('publickeyCharlie.pem')
+                scrooge = load_pk('publickeyScrooge.pem')
+                transactions = []
+                inputs = []
+                outputs = [Output(10,addressA)]
+                unsigned = UnsignedTransaction(CREATECOINS_TYPE, inputs, outputs)
+                to_sign = unsigned.DataForSigs()
+                sigs = {}
+                sigs[str(scrooge)] = sign(to_sign,'privatekeyScrooge.pem')
+                transaction = Transaction(unsigned,sigs)
+                transactions.append(transaction)
+                # print(transaction.CheckSignatures())
+                # print(transaction.CheckValues())
+
+                inputs = [Input(transaction.txID,10,addressA)]
+                outputs = [Output(8,addressB), Output(2,addressA)]
+                unsigned = UnsignedTransaction(PAYCOINS_TYPE, inputs, outputs)
+                to_sign = unsigned.DataForSigs()
+                sigs = {}
+                sigs[str(addressA)] = sign(to_sign,'privatekeyAlice.pem')
+                transaction = Transaction(unsigned,sigs)
+                transactions.append(transaction)
+                # print(transaction.CheckSignatures())
+                # print(transaction.CheckValues())
+                block = utils.create_block(transactions, self.blockchain.head_block_hash)
+                self.add_block(block)
 
             elif command == GUICLOSE_COMMAND:
                 keep_open = False
@@ -469,7 +492,7 @@ class Node():
             print('\t' + event)
         print('\n')
 
-        print(self.blockchain)
+        self.blockchain.print_blockchain()
         print('\n')
 
         otxp = self.print_outstanding_txs_pool()
