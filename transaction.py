@@ -131,10 +131,11 @@ class Transaction:
                 return False
 
             for x in self.inputs:
-                if str(x.owner) not in self.signatures.keys():
+                owner_key = x.owner.export_key(format='DER')
+                if owner_key not in self.signatures.keys():
                     return False
                 else:
-                    if not verify(to_sign, self.signatures[str(x.owner)], x.owner):
+                    if not verify(to_sign, self.signatures[owner_key], x.owner):
                         return False
 
             return True
@@ -145,10 +146,11 @@ class Transaction:
 
             pubk_scrooge = load_pk('publickeyScrooge.pem')
 
-            if str(pubk_scrooge) not in self.signatures.keys():
+            scrooge_key = pubk_scrooge.export_key(format='DER')
+            if scrooge_key not in self.signatures.keys():
                 return False
 
-            if not verify(to_sign, self.signatures[str(pubk_scrooge)], pubk_scrooge):
+            if not verify(to_sign, self.signatures[scrooge_key], pubk_scrooge):
                 return False
 
             return True

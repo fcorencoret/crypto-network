@@ -7,6 +7,7 @@ from signed_blockchain import Blockchain
 from transaction import Transaction, UnsignedTransaction, Input, Output
 import utils
 from signatures import *
+from transaction_handler import Transaction_handler
 
 # -> Enviar un mensaje
 # <- Recibir un mensaje
@@ -51,6 +52,7 @@ class Node():
         self.listen_thread.start()
 
         self.peers = []
+        self.txs_handler = Transaction_handler()
         self.outstanding_txs_pool = []
         self.ip = ip
         while len(self.ip) < 15:
@@ -247,29 +249,7 @@ class Node():
         self.__update_events(f'Received block {block_hash} with prev_block_hash {prev_block_hash} and number_of_txs {number_of_txs}')
         block_txs = []
         for _ in range(number_of_txs):
-            tx_metadata = client_socket.recv(77)
-            txID, type, N_inputs, N_outputs, N_signs = utils.decode_tx_metadata(tx_metadata)
-            # Inputs
-            inputs = []
-            for _ in range(N_inputs):
-                input_data = client_socket.recv(159)
-                inputs.append(utils.decode_input(input_data))
-
-            # Outputs
-            outputs = []
-            for _ in range(N_outputs):
-                output_data = client_socket.recv(95)
-                outputs.append(utils.decode_output(output_data))
-
-            # Sigs
-            signs = {}
-            for _ in range(N_signs):
-                sign_data = client_socket.recv(155)
-                addr, sign = utils.decode_signs(sign_data)
-                signs[addr] = sign
-
-            unsigned = UnsignedTransaction(type, inputs, outputs, txID)
-            transaction = Transaction(unsigned, signs)
+            transaction = utils.receive_tx_data(client_socket)
             print(f'transaction {transaction.txID}', transaction.CheckSignatures(), transaction.CheckValues())
             block_txs.append(transaction)
 
@@ -316,7 +296,7 @@ class Node():
 
     def receive_tx_handler(self, client_socket, tx_uniqueID=False):
         tx_metadata = client_socket.recv(8)
-        tx_uniqueID, value = utils.decode_tx_metadata(tx_metadata)
+        txID, type, N_inputs, N_outputs, N_sigs = utils.decode_tx_metadata(tx_metadata)
         self.add_tx(tx_uniqueID, value)
         client_socket.close()
 
@@ -456,6 +436,16 @@ class Node():
                 sigs = {}
                 sigs[scrooge.export_key(format='DER')] = sign(to_sign, 'privatekeyScrooge.pem')
                 transaction = Transaction(unsigned, sigs)
+
+                # Aquí estoy probando agregar transacciones
+                self.txs_handler.add_to_transaction_pool(transaction)
+
+                print('*' * 50)
+                print(self.txs_handler.transaction_pool[transaction.txID])
+                print('*' * 50)
+                continue
+                # hasta aquí
+
                 transactions.append(transaction)
                 # print(transaction.CheckSignatures())
                 # print(transaction.CheckValues())

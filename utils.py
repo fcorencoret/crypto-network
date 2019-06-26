@@ -1,4 +1,4 @@
-from transaction import Input, Output
+from transaction import Input, Output, Transaction, UnsignedTransaction
 from signed_blockchain import Block
 from hash import hash
 from Crypto.PublicKey import ECC
@@ -68,3 +68,30 @@ def create_block(transactions, prev_hash):
 def decode_inv_block_hashes(payload, number_of_hashes):
     block_hashes = [payload[i * 64 : (i + 1) * 64] for i in range(number_of_hashes)]
     return block_hashes
+
+
+def receive_tx_data(client_socket):
+    tx_metadata = client_socket.recv(77)
+    txID, type, N_inputs, N_outputs, N_signs = decode_tx_metadata(tx_metadata)
+    # Inputs
+    inputs = []
+    for _ in range(N_inputs):
+        input_data = client_socket.recv(159)
+        inputs.append(decode_input(input_data))
+
+    # Outputs
+    outputs = []
+    for _ in range(N_outputs):
+        output_data = client_socket.recv(95)
+        outputs.append(decode_output(output_data))
+
+    # Sigs
+    signs = {}
+    for _ in range(N_signs):
+        sign_data = client_socket.recv(155)
+        addr, sign = decode_signs(sign_data)
+        signs[addr] = sign
+
+    unsigned = UnsignedTransaction(type, inputs, outputs, txID)
+    transaction = Transaction(unsigned, signs)
+    return transaction
