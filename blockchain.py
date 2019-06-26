@@ -71,13 +71,22 @@ class Block():
         return generated_transactions
 
     def serialize(self):
-        serialized_block = json.dumps(self.data, sort_keys=True).enconde('utf-8')
+        serialized_block = json.dumps(
+            self.data,
+            sort_keys=True
+        ).enconde('utf-8')
         return serialized_block
 
     def __str__(self):
-        str_transactions = [str(transaction) for transaction in self.data['transactions']]
-        return 'type: {} - prev_block: {} - txs: {}'.\
-        format(self.data['type'], self.data['prev_block_hash'], str_transactions)
+        str_transactions = [
+            str(transaction) for transaction in self.data['transactions']
+        ]
+        return 'type: {} - prev_block: {} - txs: {}'\
+            .format(
+                self.data['type'],
+                self.data['prev_block_hash'],
+                str_transactions
+            )
 
 
 class Transaction():

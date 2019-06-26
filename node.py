@@ -44,6 +44,7 @@ class Node():
         self.keep_active = True
         self.__events = []
         self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.server_socket.bind((ip, port))
         self.server_socket.listen(max_connections)
         self.listen_thread = threading.Thread(target=self.listen)
@@ -246,28 +247,29 @@ class Node():
         self.__update_events(f'Received block {block_hash} with prev_block_hash {prev_block_hash} and number_of_txs {number_of_txs}')
         block_txs = []
         for _ in range(number_of_txs):
-            tx_metadata = client_socket.recv(13)
+            tx_metadata = client_socket.recv(77)
             txID, type, N_inputs, N_outputs, N_signs = utils.decode_tx_metadata(tx_metadata)
             # Inputs
             inputs = []
             for _ in range(N_inputs):
-                input_data = client_socket.recv(68)
+                input_data = client_socket.recv(159)
                 inputs.append(utils.decode_input(input_data))
+
             # Outputs
             outputs = []
             for _ in range(N_outputs):
-                output_data = client_socket.recv(36)
+                output_data = client_socket.recv(95)
                 outputs.append(utils.decode_output(output_data))
 
             # Sigs
             signs = {}
             for _ in range(N_signs):
-                sign_data = client_socket.recv(36)
-                addr, sign = utils.decode_sigs(sign_data)
+                sign_data = client_socket.recv(155)
+                addr, sign = utils.decode_signs(sign_data)
                 signs[addr] = sign
 
             unsigned = UnsignedTransaction(type, inputs, outputs, txID)
-            transaction = Transaction(unsigned,signs)
+            transaction = Transaction(unsigned, signs)
             print(f'transaction {transaction.txID}', transaction.CheckSignatures(), transaction.CheckValues())
             block_txs.append(transaction)
 
@@ -331,23 +333,23 @@ class Node():
     def add_block(self, block):
         # Try to add block to blockchain. If block already in blockchain, block_hash is False
         added_block = self.blockchain.add_block(block)
-        self.__update_events(added_block)
 
-        # if added_block:
+        if added_block:
         #     self.__update_events(f'Added block {block_hash}')
         #     # Eliminate txs from outstanding_txs_pool
         #     for (tx_uniqueID, value) in block_txs:
         #         if any(x.data['uniqueID'] == tx_uniqueID for x in self.outstanding_txs_pool):
         #             self.outstanding_txs_pool = list(filter(lambda x: x.data['uniqueID'] != tx_uniqueID, self.outstanding_txs_pool))
         #             self.__update_events(f'Eliminating tx {{ id: {tx_uniqueID}, value: {value} }} from outstanding_txs_pool')
+            self.__update_events(f'Block {added_block} added to blockchain')
 
-        #     if self.peers:
-        #         self.__update_events(f'Propagating block {block_hash} to peers')
-        #     # Propagate block to peers
-        #     for conexion in self.peers:
-        #         self.new_block_handler(conexion, block_hash)
-        # else:
-        #     self.__update_events(f'Block {block_hash} already in Blockchain')
+            if self.peers:
+                self.__update_events(f'Propagating block {added_block} to peers')
+            # Propagate block to peers
+            for conexion in self.peers:
+                self.new_block_handler(conexion, added_block)
+        else:
+            self.__update_events(f'Block already in Blockchain')
 
     def add_tx(self, tx_uniqueID, value):
         # Check if tx in outstanding_txs_pool
@@ -448,27 +450,29 @@ class Node():
                 scrooge = load_pk('publickeyScrooge.pem')
                 transactions = []
                 inputs = []
-                outputs = [Output(10,addressA)]
+                outputs = [Output(10, addressA)]
                 unsigned = UnsignedTransaction(CREATECOINS_TYPE, inputs, outputs)
                 to_sign = unsigned.DataForSigs()
                 sigs = {}
-                sigs[str(scrooge)] = sign(to_sign,'privatekeyScrooge.pem')
-                transaction = Transaction(unsigned,sigs)
+                sigs[scrooge.export_key(format='DER')] = sign(to_sign, 'privatekeyScrooge.pem')
+                transaction = Transaction(unsigned, sigs)
                 transactions.append(transaction)
                 # print(transaction.CheckSignatures())
                 # print(transaction.CheckValues())
 
-                inputs = [Input(transaction.txID,10,addressA)]
-                outputs = [Output(8,addressB), Output(2,addressA)]
+                inputs = [Input(transaction.txID, 10, addressA)]
+                outputs = [Output(8, addressB), Output(2, addressA)]
                 unsigned = UnsignedTransaction(PAYCOINS_TYPE, inputs, outputs)
                 to_sign = unsigned.DataForSigs()
                 sigs = {}
-                sigs[str(addressA)] = sign(to_sign,'privatekeyAlice.pem')
-                transaction = Transaction(unsigned,sigs)
+                sigs[addressA.export_key(format='DER')] = sign(to_sign, 'privatekeyAlice.pem')
+                transaction = Transaction(unsigned, sigs)
                 transactions.append(transaction)
                 # print(transaction.CheckSignatures())
                 # print(transaction.CheckValues())
-                block = utils.create_block(transactions, self.blockchain.head_block_hash)
+                block = utils.create_block(
+                    transactions, self.blockchain.head_block_hash
+                )
                 self.add_block(block)
 
             elif command == GUICLOSE_COMMAND:
