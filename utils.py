@@ -3,6 +3,7 @@ from signed_blockchain import Block
 from hash import hash
 from Crypto.PublicKey import ECC
 import socket
+from signatures import load_pk
 
 
 def create_socket(conexion):
@@ -65,11 +66,6 @@ def create_block(transactions, prev_hash):
     return Block(transactions, prev_hash)
 
 
-def decode_inv_block_hashes(payload, number_of_hashes):
-    block_hashes = [payload[i * 64 : (i + 1) * 64] for i in range(number_of_hashes)]
-    return block_hashes
-
-
 def receive_tx_data(client_socket):
     tx_metadata = client_socket.recv(77)
     txID, type, N_inputs, N_outputs, N_signs = decode_tx_metadata(tx_metadata)
@@ -95,3 +91,11 @@ def receive_tx_data(client_socket):
     unsigned = UnsignedTransaction(type, inputs, outputs, txID)
     transaction = Transaction(unsigned, signs)
     return transaction
+
+
+def get_public_key(name):
+    return load_pk(f'publickey{name}.pem')
+
+
+def get_private_key(name):
+    return f'privatekey{name}.pem'

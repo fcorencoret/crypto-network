@@ -2,15 +2,18 @@ import click
 import re
 import socket
 import os
+import utils
 
 from whaaaaat import prompt
 from node import metadata, GUI_COMMAND, VERACK_COMMAND, TX_COMMAND,\
                     CREATE_BLOCK_COMMAND, BLOCK_COMMAND, CREATE_CONNECTION, \
                     GUICLOSE_COMMAND, DEFAULT_DATA_COMMAND
+from transaction import Output, Transaction, UnsignedTransaction, PAYCOINS_TYPE
+from signatures import load_pk, sign
 
 SELECTED_ACTION = 'selected_action'
 TX_ID = 'tx_id'
-TX_IDS = 'tx_ids'
+INPUT_INDEX = 'input_idx'
 TX_VALUE = 'tx_value'
 IP_INPUT = 'ip'
 PORT_INPUT = 'port'
@@ -51,79 +54,127 @@ def connect_to_node(connection):
     return client_socket
 
 
-def create_and_send_tx(client_socket: socket.socket):
-    questions = [{
-        'type': 'input',
-        'name': TX_ID,
-        'message': 'Ingresa el ID de la transacción a agregar'
-    }, {
-        'type': 'input',
-        'name': TX_VALUE,
-        'message': 'Ingresa el valor de la transacción a agregar'
-    }]
-
-    answers = prompt(questions)
-    tx_id = int(answers[TX_ID])
-    tx_value = int(answers[TX_VALUE])
-
+def create_and_send_tx(client_socket: socket.socket, user):
+    sender = utils.get_public_key(user)
     command = gui_metadata(TX_COMMAND)
     client_socket.send(command)
 
-    payload = tx_id.to_bytes(4, 'little')
-    payload += tx_value.to_bytes(4, 'little')
-    client_socket.send(payload)
+    inputs = []
+    N_inputs = int.from_bytes(client_socket.recv(4), 'little')
+    for _ in range(N_inputs):
+        input_data = client_socket.recv(159)
+        inputs.append(utils.decode_input(input_data))
 
-    wasAddedByte = client_socket.recv(1)
-    wasAdded = bool.from_bytes(wasAddedByte, 'little')
-
-    if wasAdded:
-        print('Transacción agregada con éxito')
-    else:
-        print('Transacción no pudo ser agregada')
-
-
-def create_and_send_block(client_socket: socket.socket):
-    command = gui_metadata(CREATE_BLOCK_COMMAND)
-    client_socket.send(command)
-
-    number_of_txs = int.from_bytes(client_socket.recv(4), 'little')
-
-    if number_of_txs == 0:
-        print('There are no transactions to create block')
-        return
-
-    txs = []
-    for _ in range(number_of_txs):
-        tx_id = int.from_bytes(client_socket.recv(4), 'little')
-        tx_value = int.from_bytes(client_socket.recv(4), 'little')
-        txs.append((tx_id, tx_value))
-
-    choices = [{
-            'name': f'Tx ID: {tx_id}, Value: {tx_value}',
-            'value': (tx_id, tx_value)
+    input_choices = [
+        {
+            'name': f'txID: {input.where_created} value: {input.value}',
         }
-        for tx_id, tx_value in txs
+        for index, input in enumerate(inputs)
+    ]
+
+    recipient_choices = [
+        {
+            'name': 'Alice',
+        }, {
+            'name': 'Bob',
+        }, {
+            'name': 'Charlie',
+        }, {
+            'name': 'No more pays',
+        },
     ]
 
     actions = [{
         'type': 'checkbox',
-        'name': TX_IDS,
-        'message': 'Selecciona las transacciones a ingresar en el bloque',
-        'choices': choices,
+        'name': INPUT_INDEX,
+        'message': 'Selecciona los inputs a ingresar en la transacción',
+        'choices': input_choices,
+    }]
+
+    recipient_actions = [{
+        'type': 'list',
+        'name': 'recipient',
+        'message': 'Selecciona a la persona que le pagarás',
+        'choices': recipient_choices,
+    }]
+
+    value_actions = [{
+        'type': 'input',
+        'name': 'value',
+        'message': '¿Cuánto le vas a pagar?',
     }]
 
     answers = prompt(actions)
-    txs_selected = answers.get(TX_IDS)
+    inputs_selected = answers.get(INPUT_INDEX)
+    inputs_to_pay = []
+    for inputs_selected in inputs_selected:
+        index = input_choices.index({'name': inputs_selected})
+        inputs_to_pay.append(inputs[index])
 
-    command = gui_metadata(BLOCK_COMMAND)
+    outputs = []
+    while True:
+        answers = prompt(recipient_actions)
+        answer = answers['recipient']
+        if answer == 'No more pays':
+            break
+
+        recipient = utils.get_public_key(answer)
+        answers = prompt(value_actions)
+        value = int(answers['value'])
+        output = Output(value, recipient)
+        outputs.append(output)
+
+    unsigned = UnsignedTransaction(PAYCOINS_TYPE, inputs_to_pay, outputs)
+    to_sign = unsigned.DataForSigs()
+    signs = {}
+    signs[sender.export_key(format='DER')] = sign(to_sign, utils.get_private_key(user))
+    transaction = Transaction(unsigned, signs)
+    client_socket.send(transaction.serialize())
+
+
+def create_and_send_block(client_socket: socket.socket):
+    # command = gui_metadata(CREATE_BLOCK_COMMAND)
+    # client_socket.send(command)
+
+    # number_of_txs = int.from_bytes(client_socket.recv(4), 'little')
+
+    # if number_of_txs == 0:
+    #     print('There are no transactions to create block')
+    #     return
+
+    # txs = []
+    # for _ in range(number_of_txs):
+    #     tx_id = int.from_bytes(client_socket.recv(4), 'little')
+    #     tx_value = int.from_bytes(client_socket.recv(4), 'little')
+    #     txs.append((tx_id, tx_value))
+
+    # choices = [{
+    #         'name': f'Tx ID: {tx_id}, Value: {tx_value}',
+    #         'value': (tx_id, tx_value)
+    #     }
+    #     for tx_id, tx_value in txs
+    # ]
+
+    # actions = [{
+    #     'type': 'checkbox',
+    #     'name': INPUT_INDEX,
+    #     'message': 'Selecciona las transacciones a ingresar en el bloque',
+    #     'choices': choices,
+    # }]
+
+    # answers = prompt(actions)
+    # txs_selected = answers.get(INPUT_INDEX)
+
+    # command = gui_metadata(BLOCK_COMMAND)
+    command = gui_metadata(CREATE_BLOCK_COMMAND)
     client_socket.send(command)
 
-    paylaod = len(txs_selected).to_bytes(4, 'little')  # Number of txs in block
-    for tx_selected in txs_selected:
-        tx_id, tx_value = list(filter(lambda tx: tx['name'] == tx_selected, choices))[0]['value']
-        paylaod += tx_id.to_bytes(4, 'little')
-        paylaod += tx_value.to_bytes(4, 'little')
-    client_socket.send(paylaod)
+    # paylaod = len(txs_selected).to_bytes(4, 'little')  # Number of txs in block
+    # for tx_selected in txs_selected:
+    #     tx_id, tx_value = list(filter(lambda tx: tx['name'] == tx_selected, choices))[0]['value']
+    #     paylaod += tx_id.to_bytes(4, 'little')
+    #     paylaod += tx_value.to_bytes(4, 'little')
+    # client_socket.send(paylaod)
 
 
 def create_and_send_connection(client_socket: socket.socket):
@@ -166,7 +217,13 @@ def create_and_send_connection(client_socket: socket.socket):
     default=8080,
     help='Node\'s port to connect',
 )
-def main(host, port):
+@click.option(
+    '-u', '--user',
+    type=click.Choice(['Alice', 'Bob', 'Charlie']),
+    default='Alice',
+    help='Node\'s user key file to sign transactions'
+)
+def main(host, port, user):
     try:
         client_socket = connect_to_node((host, port))
     except:
@@ -194,7 +251,7 @@ def main(host, port):
             answer = prompt(actions).get(SELECTED_ACTION)
 
         if answer == CREATE_TX_ACTION:
-            create_and_send_tx(client_socket)
+            create_and_send_tx(client_socket, user)
         elif answer == CREATE_BLOCK_ACTION:
             create_and_send_block(client_socket)
         elif answer == CREATE_CONNECTION_ACTION:

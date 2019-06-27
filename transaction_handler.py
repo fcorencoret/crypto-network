@@ -12,26 +12,36 @@ class Transaction_handler:
         if not transaction.CheckSignatures():
             return False
 
-        if transaction.type == 'payCoins' and not transaction.CheckValues():
+        if transaction.type == PAYCOINS_TYPE and not transaction.CheckValues():
+            return False
+
+        if transaction.txID in self.transaction_pool.keys():
             return False
 
         # to_hash = hash(transaction.serialize()).hexdigest()
         self.transaction_pool[transaction.txID] = transaction
+        return True
 
-    def process_transactions(self):
-        new_block_data = []
-        for txID in self.transaction_pool.keys():
-            if self.isValid(self.transaction_pool[txID]):
-                new_block_data.append(txID)
-                # if using this logic the pool needs to be updated immediatly
-                # (see the example below of a double spend attempt)
-                self.updateUTXOpool(self.transaction_pool[txID])
+    def validate_transactions(self, block):
+        for tx in block.transactions:
+            # All transactions are valid
+            if not self.isValid(tx):
+                return False
+        return True
 
-        for trans_key in new_block_data:
-            self.transaction_pool.pop(trans_key)
+    def process_transactions(self, block):
+        for tx in block.transactions:
+            # If a transaction is not in the tx pool it is added
+            if tx.txID not in self.transaction_pool.keys():
+                self.add_to_transaction_pool(tx)
+
+        # Update UTXO pool and remove from transaction pool
+        for tx in block.transactions:
+            self.updateUTXOpool(tx)
+            self.transaction_pool.pop(tx.txID)
 
     def isValid(self, transaction):
-        if transaction.type == 'createCoins':
+        if transaction.type == CREATECOINS_TYPE:
             return True
 
         for x in transaction.inputs:
@@ -104,7 +114,7 @@ if __name__ == '__main__':
     out0 = Output(15, addressB)
     outputs.append(out0)
 
-    unsigned = UnsignedTransaction(2, 'payCoins', inputs, outputs)
+    unsigned = UnsignedTransaction(2, PAYCOINS_TYPE, inputs, outputs)
     to_sign = unsigned.DataForSigs()
 
     sigs = {}
@@ -120,7 +130,7 @@ if __name__ == '__main__':
     out1 = Output(15, addressC)
     outputs[0] = out1
 
-    unsigned = UnsignedTransaction(2, 'payCoins', inputs, outputs)
+    unsigned = UnsignedTransaction(2, PAYCOINS_TYPE, inputs, outputs)
     to_sign = unsigned.DataForSigs()
 
     sigs = {}

@@ -17,6 +17,12 @@ class Block:
     def serialize_transactions(self):
         return [tx.serialize() for tx in self.transactions]
 
+    def is_valid(self):
+        for tx in self.transactions:
+            if not (tx.CheckValues() and tx.CheckSignatures()):
+                return False
+        return True
+
     def __str__(self):
         tmp = ''
         for tx in self.transactions:

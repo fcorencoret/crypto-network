@@ -9,22 +9,13 @@ class Input:
     def __init__(self, txID, amount, address):
         self.where_created = txID
         self.value = amount
-        self.owner = address  # raw public key (as imported from the storage)
-
-    # for hashing an input
-    # def serialize(self):
-    #     d = {
-    #         'where_created': self.where_created,
-    #         'value': self.value,
-    #         'owner': str(self.owner)
-    #     }
-    #     return json.dumps(d, sort_keys=True).encode('utf-8')
+        self.owner = address
 
     def serialize(self):
-        payload = self.where_created.encode('utf-8')
-        payload += self.value.to_bytes(4, 'little')
-        payload += self.owner.export_key(format='DER')
-        return payload
+        payload = self.where_created.encode('utf-8')  # 64 bytes
+        payload += self.value.to_bytes(4, 'little')  # 4 bytes
+        payload += self.owner.export_key(format='DER')  # 91 bytes
+        return payload  # 159 bytes
 
     def __str__(self):
         return '(Origin tx: {} - Value: {} - Owner: {})'.\
@@ -34,20 +25,12 @@ class Input:
 class Output:
     def __init__(self, amount, address):
         self.value = amount
-        self.recipient = address  # raw public key
-
-    # for hashing an output
-    # def serialize(self):
-    #     d = {
-    #         'value': self.value,
-    #         'recipient': str(self.recipient)
-    #     }
-    #     return json.dumps(d, sort_keys=True).encode('utf-8')
+        self.recipient = address
 
     def serialize(self):
-        payload = self.value.to_bytes(4, 'little')
-        payload += self.recipient.export_key(format='DER')
-        return payload
+        payload = self.value.to_bytes(4, 'little') # 4 bytes
+        payload += self.recipient.export_key(format='DER')  # 91 bytes
+        return payload  # 95 bytes
 
     def __str__(self):
         return '(Value: {} - Recipient: {})'.format(
@@ -178,11 +161,11 @@ class Transaction:
         return (in_value >= out_value)
 
     def serialize(self):
-        payload = self.txID.encode('utf-8')
-        payload += self.type.encode('utf-8')
-        payload += len(self.inputs).to_bytes(4, 'little')
-        payload += len(self.outputs).to_bytes(4, 'little')
-        payload += len(self.signatures).to_bytes(4, 'little')
+        payload = self.txID.encode('utf-8')  # 64 bytes
+        payload += self.type.encode('utf-8')  # 1 byte
+        payload += len(self.inputs).to_bytes(4, 'little')  # 4 bytes
+        payload += len(self.outputs).to_bytes(4, 'little')  # 4 bytes
+        payload += len(self.signatures).to_bytes(4, 'little')  # 4 bytes
         for input in self.inputs:
             payload += input.serialize()
         for output in self.outputs:
