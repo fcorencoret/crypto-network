@@ -55,7 +55,6 @@ class Node():
 
         self.peers = []
         self.txs_handler = Transaction_handler()
-        self.outstanding_txs_pool = []
         self.ip = ip
         while len(self.ip) < 15:
             self.ip += ' '
@@ -215,7 +214,8 @@ class Node():
             for _ in range(self.current_height - sent_blocks - 2):
                 current_block_hash = current_block.prev_hash
                 current_block = self.blockchain.blocks[current_block_hash]
-            # Stop iterating on the next block of the one to send, to obtain prev_block_hash
+            # Stop iterating on the next block of the one to send, to obtain
+            # prev_block_hash
             # Special case for the head node
             block_hash_to_send = current_block_hash
             payload += block_hash_to_send.encode('utf-8')
@@ -250,7 +250,6 @@ class Node():
         block_txs = []
         for _ in range(number_of_txs):
             transaction = utils.receive_tx_data(client_socket)
-            # print(f'transaction {transaction.txID}', transaction.CheckSignatures(), transaction.CheckValues())
             block_txs.append(transaction)
 
         block = utils.create_block(block_txs, prev_block_hash)
@@ -271,10 +270,6 @@ class Node():
         client_socket.send(payload)
         self.__update_events(f'Sent block {block_hash} with prev_block_hash {prev_block_hash} and {number_of_txs} txs')
         for tx in block_txs:
-            # Send 4 bytes with the value of the tx
-            # payload = tx.data['uniqueID'].to_bytes(4, 'little')
-            # Send 4 bytes with the uniqueID of the tx
-            # payload += tx.data['value'].to_bytes(4, 'little')
             payload = tx
             client_socket.send(payload)
         client_socket.close()
@@ -334,13 +329,6 @@ class Node():
             self.__update_events(f'Block already in Blockchain')
 
     def add_tx(self, tx):
-        # Check if tx in outstanding_txs_pool
-        # if any(x.data['uniqueID'] == tx_uniqueID for x in self.outstanding_txs_pool):
-        #     self.__update_events(f'Transaction {tx_uniqueID} already in outstanding_txs_pool')
-        #     return False
-        # # Tx not in outstanding_txs_pool. Proceed to append
-        # self.outstanding_txs_pool.append(Transaction(tx_uniqueID, value))
-
         was_added = self.txs_handler.add_to_transaction_pool(tx)
         if not was_added:
             self.__update_events(f'Transaction {tx.txID} already in outstanding_txs_pool')
@@ -417,34 +405,6 @@ class Node():
                 self.add_tx(tx)
 
             elif command == CREATE_BLOCK_COMMAND:
-                # number_of_txs = len(self.outstanding_txs_pool).to_bytes(4, 'little')
-                # client_socket.send(number_of_txs)
-
-                # payload = b''
-                # for tx in self.outstanding_txs_pool:
-                #     tx_id, tx_value = tx.data['uniqueID'], tx.data['value']
-                #     payload += tx_id.to_bytes(4, 'little')
-                #     payload += tx_value.to_bytes(4, 'little')
-                # client_socket.send(payload)
-
-                # command_metadata = client_socket.recv(31)
-                # command = command_metadata[:12].decode('utf-8')
-                # if command != BLOCK_COMMAND:
-                #     self.__update_events('Did not receive block command')
-                #     client_socket.close()
-                #     return
-
-                # metadata_new_block = client_socket.recv(4)
-                # number_of_txs_in_block = int.from_bytes(metadata_new_block, 'little')
-
-                # txs = []
-                # for _ in range(number_of_txs_in_block):
-                #     tx_metadata = client_socket.recv(8)
-                #     tx_id = int.from_bytes(tx_metadata[:4], 'little')
-                #     tx_value = int.from_bytes(tx_metadata[4:], 'little')
-                #     txs.append((tx_id, tx_value))
-
-                # self.add_block(txs)
                 self.generate_new_block()
 
             elif command == CREATE_CONNECTION:

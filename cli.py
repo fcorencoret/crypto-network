@@ -21,7 +21,7 @@ PORT_INPUT = 'port'
 CREATE_CONNECTION_ACTION = 'Crear conexión'
 CREATE_TX_ACTION = 'Crear transacción'
 CREATE_BLOCK_ACTION = 'Crear bloque'
-CREATE_DEFAULT_DATA_ACTION = 'Crear 5 bloques'
+CREATE_DEFAULT_DATA_ACTION = 'Crear default data'
 CLOSE_CLI_ACTION = 'Cerrar GUI'
 
 gui_metadata = lambda command: metadata(command, '.' * 15, b'.' * 4)
@@ -133,48 +133,8 @@ def create_and_send_tx(client_socket: socket.socket, user):
 
 
 def create_and_send_block(client_socket: socket.socket):
-    # command = gui_metadata(CREATE_BLOCK_COMMAND)
-    # client_socket.send(command)
-
-    # number_of_txs = int.from_bytes(client_socket.recv(4), 'little')
-
-    # if number_of_txs == 0:
-    #     print('There are no transactions to create block')
-    #     return
-
-    # txs = []
-    # for _ in range(number_of_txs):
-    #     tx_id = int.from_bytes(client_socket.recv(4), 'little')
-    #     tx_value = int.from_bytes(client_socket.recv(4), 'little')
-    #     txs.append((tx_id, tx_value))
-
-    # choices = [{
-    #         'name': f'Tx ID: {tx_id}, Value: {tx_value}',
-    #         'value': (tx_id, tx_value)
-    #     }
-    #     for tx_id, tx_value in txs
-    # ]
-
-    # actions = [{
-    #     'type': 'checkbox',
-    #     'name': INPUT_INDEX,
-    #     'message': 'Selecciona las transacciones a ingresar en el bloque',
-    #     'choices': choices,
-    # }]
-
-    # answers = prompt(actions)
-    # txs_selected = answers.get(INPUT_INDEX)
-
-    # command = gui_metadata(BLOCK_COMMAND)
     command = gui_metadata(CREATE_BLOCK_COMMAND)
     client_socket.send(command)
-
-    # paylaod = len(txs_selected).to_bytes(4, 'little')  # Number of txs in block
-    # for tx_selected in txs_selected:
-    #     tx_id, tx_value = list(filter(lambda tx: tx['name'] == tx_selected, choices))[0]['value']
-    #     paylaod += tx_id.to_bytes(4, 'little')
-    #     paylaod += tx_value.to_bytes(4, 'little')
-    # client_socket.send(paylaod)
 
 
 def create_and_send_connection(client_socket: socket.socket):

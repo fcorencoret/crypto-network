@@ -18,7 +18,6 @@ class Transaction_handler:
         if transaction.txID in self.transaction_pool.keys():
             return False
 
-        # to_hash = hash(transaction.serialize()).hexdigest()
         self.transaction_pool[transaction.txID] = transaction
         return True
 

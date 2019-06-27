@@ -15,15 +15,6 @@ class Blockchain():
         self.genesis_block_hash = 0
         self.add_block([], type='genesis')
 
-    def create_block(self):
-        # Method for creating block upon on own Transactions
-        # Create Block instance
-        # block = Block(transactions, self.head_block_hash)
-        # Serialize and hash bock
-        # block_hash = self.hash_block(block.serialize())
-        # self.blocks[block_hash] = block
-        pass
-
     def add_block(self, transactions, type='block', block_hash=False):
         # Method for adding block to blockchain
         if block_hash and block_hash in self.blocks:
@@ -32,9 +23,6 @@ class Blockchain():
         # Create Block instance with information received
         prev_block_hash = self.head_block_hash if type == 'block' else None
         block = Block(type, prev_block_hash, transactions)
-        # TODO: Serialize and hash bock
-        # block_hash = self.hash_block(block.serialize())
-        # self.blocks[block_hash] = block
 
         if not block_hash:
             block_hash = self.head_block_hash + 1

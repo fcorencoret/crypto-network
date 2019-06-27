@@ -2,8 +2,10 @@ import os
 import click
 
 from whaaaaat import prompt
-from cli import connect_to_node, gui_metadata, create_and_send_block, GUICLOSE_COMMAND
+from cli import connect_to_node, gui_metadata,\
+    create_and_send_block, GUICLOSE_COMMAND
 from random import uniform
+from time import sleep
 
 MAIN_ACTION = 'main'
 
@@ -63,6 +65,7 @@ def main():
         'choices': [
             ADD_NODE,
             MINE,
+            'Mostrar nodos',
             'Cerrar'
         ],
     }]
@@ -79,6 +82,10 @@ def main():
             ports.append((port, prob))
         elif answer == MINE:
             mine(ports)
+        elif answer == 'Mostrar nodos':
+            for port, prob in ports:
+                click.echo(f'Port: {port} Prob: {prob}')
+            sleep(5)
         else:
             keep_open = False
 
